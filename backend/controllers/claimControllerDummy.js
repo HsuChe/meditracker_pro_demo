@@ -4,38 +4,57 @@ const format = require('pg-format'); // We only need pg-format now
 
 // Get all dummy claims with pagination
 const getDummyClaims = async (req, res) => {
-    const { page = 1, pageSize = 10, filters = [] } = req.query;
-    const offset = (page - 1) * pageSize;
-
-    const { whereClause, params } = buildWhereClause(filters);
-    const whereSQL = whereClause ? `WHERE ${whereClause}` : '';
-
     try {
-        const countQuery = `SELECT COUNT(*) FROM claims_dummy ${whereSQL}`;
-        const totalCountResult = await pool.query(countQuery, params);
-        const totalCount = parseInt(totalCountResult.rows[0].count);
+        const { page = 1, limit = 10 } = req.query;
+        const offset = (page - 1) * limit;
 
-        const dataQuery = `
-            SELECT * FROM claims_dummy
-            ${whereSQL}
-            ORDER BY claim_merged_id ASC
-            LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+        // Get total statistics from the entire table
+        const statsQuery = `
+            SELECT 
+                COUNT(*) as total_records,
+                COUNT(DISTINCT patient_id) as unique_patients,
+                SUM(allowed_amount) as total_amount,
+                AVG(allowed_amount) as average_amount,
+                MIN(admission_date) as start_date,
+                MAX(admission_date) as end_date
+            FROM claims_dummy
+            WHERE allowed_amount IS NOT NULL
         `;
-        const dataParams = [...params, pageSize, offset];
-        const dataResult = await pool.query(dataQuery, dataParams);
+        const statsResult = await pool.query(statsQuery);
+        const stats = statsResult.rows[0];
+
+        // Get paginated records
+        const result = await pool.query(
+            `SELECT * FROM claims_dummy 
+             ORDER BY claim_merged_id 
+             LIMIT $1 OFFSET $2`,
+            [limit, offset]
+        );
 
         res.json({
-            data: dataResult.rows,
-            metadata: {
-                totalCount,
-                totalPages: Math.ceil(totalCount / pageSize),
-                currentPage: page,
-                pageSize,
+            records: result.rows,
+            pagination: {
+                total: parseInt(stats.total_records),
+                currentPage: parseInt(page),
+                totalPages: Math.ceil(parseInt(stats.total_records) / limit),
+                pageSize: parseInt(limit)
             },
+            metadata: {
+                totalAmount: parseFloat(stats.total_amount) || 0,
+                averageAmount: parseFloat(stats.average_amount) || 0,
+                uniquePatients: parseInt(stats.unique_patients) || 0,
+                dateRange: {
+                    start: stats.start_date,
+                    end: stats.end_date
+                }
+            }
         });
     } catch (error) {
-        console.error('Error fetching claims with filters:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('Error fetching dummy claims:', error);
+        res.status(500).json({ 
+            error: 'Internal server error', 
+            details: error.message 
+        });
     }
 };
 

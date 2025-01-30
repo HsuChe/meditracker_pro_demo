@@ -5,45 +5,100 @@ const getIngestedData = async (req, res) => {
   const offset = (page - 1) * pageSize;
 
   try {
-    let query = 'SELECT * FROM ingested_data WHERE 1=1';
-    const params = [];
+    // First get the count with a simpler query
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM ingested_data i
+      WHERE i.parent_ingestion_id IS NULL
+    `;
+    
+    const countParams = [];
     let paramCount = 1;
 
     if (name) {
-      query += ` AND name ILIKE $${paramCount}`;
-      params.push(`%${name}%`);
+      countQuery += ` AND i.name ILIKE $${paramCount}`;
+      countParams.push(`%${name}%`);
       paramCount++;
     }
 
     if (fromDate) {
-      query += ` AND ingestion_date >= $${paramCount}`;
-      params.push(fromDate);
+      countQuery += ` AND i.ingestion_date >= $${paramCount}`;
+      countParams.push(fromDate);
       paramCount++;
     }
 
     if (toDate) {
-      query += ` AND ingestion_date <= $${paramCount}`;
-      params.push(toDate);
+      countQuery += ` AND i.ingestion_date <= $${paramCount}`;
+      countParams.push(toDate);
       paramCount++;
     }
+    
+    const countResult = await pool.query(countQuery, countParams);
+    const totalCount = parseInt(countResult.rows[0].total);
 
-    // Get total count
-    const countResult = await pool.query(
-      query.replace('SELECT *', 'SELECT COUNT(*)'),
-      params
+    // Then get the data
+    let query = `
+      SELECT 
+        i.*,
+        COALESCE(b.batch_count, 0) as batch_count
+      FROM ingested_data i
+      LEFT JOIN (
+        SELECT parent_ingestion_id, COUNT(*) as batch_count
+        FROM ingested_data
+        WHERE parent_ingestion_id IS NOT NULL
+        GROUP BY parent_ingestion_id
+      ) b ON i.ingested_data_id = b.parent_ingestion_id
+      WHERE i.parent_ingestion_id IS NULL
+    `;
+    
+    const params = [];
+    let queryParamCount = 1;
+
+    if (name) {
+      query += ` AND i.name ILIKE $${queryParamCount}`;
+      params.push(`%${name}%`);
+      queryParamCount++;
+    }
+
+    if (fromDate) {
+      query += ` AND i.ingestion_date >= $${queryParamCount}`;
+      params.push(fromDate);
+      queryParamCount++;
+    }
+
+    if (toDate) {
+      query += ` AND i.ingestion_date <= $${queryParamCount}`;
+      params.push(toDate);
+      queryParamCount++;
+    }
+
+    query += ` ORDER BY i.ingestion_date DESC LIMIT $${queryParamCount} OFFSET $${queryParamCount + 1}`;
+    const parentResults = await pool.query(query, [...params, pageSize, offset]);
+
+    // Fetch batch details for each parent
+    const batchDetails = await Promise.all(
+      parentResults.rows.map(async parent => {
+        const batchQuery = `
+          SELECT *
+          FROM ingested_data
+          WHERE parent_ingestion_id = $1
+          ORDER BY batch_number
+        `;
+        const batchResult = await pool.query(batchQuery, [parent.ingested_data_id]);
+        return {
+          ...parent,
+          batches: batchResult.rows
+        };
+      })
     );
 
-    // Get paginated data
-    query += ` ORDER BY ingestion_date DESC LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
-    const dataResult = await pool.query(query, [...params, pageSize, offset]);
-
     res.json({
-      records: dataResult.rows,
+      records: batchDetails,
       pagination: {
         currentPage: parseInt(page),
         pageSize: parseInt(pageSize),
-        totalPages: Math.ceil(parseInt(countResult.rows[0].count) / pageSize),
-        totalRecords: parseInt(countResult.rows[0].count)
+        totalPages: Math.ceil(totalCount / pageSize),
+        totalRecords: totalCount
       }
     });
   } catch (error) {
@@ -74,108 +129,89 @@ const getIngestedDataById = async (req, res) => {
 const createIngestedData = async (req, res) => {
   const client = await pool.connect();
   try {
-    const { name, data, mapping_id, record_count, file_size_bytes } = req.body;
-
-    // Debug logging
-    console.log('Received request:', {
-      name,
-      mapping_id,
-      record_count,
+    const { 
+      name, 
+      data, 
+      mapping_id, 
+      record_count, 
       file_size_bytes,
-      dataLength: data?.length,
-      sampleRow: data?.[0]
-    });
-
-    // Input validation
-    if (!name || !data || !mapping_id || !Array.isArray(data)) {
-      return res.status(400).json({ 
-        error: 'Invalid input data',
-        details: 'Required fields: name, data (array), mapping_id'
-      });
-    }
-
-    // Verify mapping exists
-    const mappingCheck = await client.query(
-      'SELECT id, mappings FROM saved_mappings WHERE id = $1',
-      [mapping_id]
-    );
-
-    if (mappingCheck.rows.length === 0) {
-      return res.status(400).json({ error: 'Invalid mapping ID' });
-    }
+      batch_number,
+      total_batches,
+      parent_ingestion_id  // This will be null for first batch
+    } = req.body;
 
     await client.query('BEGIN');
 
-    try {
-      // 1. Insert ingestion record
-      const ingestionResult = await client.query(
+    // If this is the first batch (batch_number === 1), create parent record
+    let parentId = parent_ingestion_id;
+    if (batch_number === 1) {
+      const parentResult = await client.query(
         `INSERT INTO ingested_data 
          (name, mapping_id, record_count, file_size_bytes, ingestion_date, 
           activity_status, processing_status, type)
          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 
                 'active', 'processing', 'claims')
          RETURNING ingested_data_id`,
-        [name, mapping_id, record_count, file_size_bytes]
+        [name, mapping_id, record_count * total_batches, file_size_bytes * total_batches]
       );
+      parentId = parentResult.rows[0].ingested_data_id;
+    }
 
-      const ingestionId = ingestionResult.rows[0].ingested_data_id;
+    // Insert batch record
+    const ingestionResult = await client.query(
+      `INSERT INTO ingested_data 
+       (name, mapping_id, record_count, file_size_bytes, ingestion_date, 
+        activity_status, processing_status, type, 
+        batch_number, total_batches, parent_ingestion_id)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 
+              'active', 'processing', 'claims',
+              $5, $6, $7)
+       RETURNING ingested_data_id`,
+      [name, mapping_id, record_count, file_size_bytes, 
+       batch_number, total_batches, parentId]
+    );
 
-      // 2. Insert transformed data into claims_dummy
-      for (let i = 0; i < data.length; i++) {
-        const row = data[i];
-        const columns = Object.keys(row);
-        const values = Object.values(row);
-        
-        // Debug logging for the first row
-        if (i === 0) {
-          console.log('First row insert:', {
-            columns,
-            values,
-            query: `INSERT INTO claims_dummy 
-              (${columns.join(', ')}, ingestion_id)
-              VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}, $${columns.length + 1})`
-          });
-        }
+    const ingestionId = ingestionResult.rows[0].ingested_data_id;
 
-        await client.query(
-          `INSERT INTO claims_dummy 
-           (${columns.join(', ')}, ingestion_id)
-           VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}, $${columns.length + 1})`,
-          [...values, ingestionId]
-        );
-      }
+    // Insert claims data
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const columns = Object.keys(row);
+      const values = Object.values(row);
+      
+      await client.query(
+        `INSERT INTO claims_dummy 
+         (${columns.join(', ')}, ingestion_id)
+         VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}, $${columns.length + 1})`,
+        [...values, ingestionId]
+      );
+    }
 
-      // 3. Update ingestion status to completed
+    // Update status if this is the last batch
+    if (batch_number === total_batches) {
+      await client.query(
+        `UPDATE ingested_data 
+         SET processing_status = 'completed'
+         WHERE ingested_data_id = $1 OR ingested_data_id = $2`,
+        [parentId, ingestionId]
+      );
+    } else {
       await client.query(
         `UPDATE ingested_data 
          SET processing_status = 'completed'
          WHERE ingested_data_id = $1`,
         [ingestionId]
       );
-
-      // 4. Update last_used timestamp on the mapping
-      await client.query(
-        'UPDATE saved_mappings SET last_used = CURRENT_TIMESTAMP WHERE id = $1',
-        [mapping_id]
-      );
-
-      await client.query('COMMIT');
-      
-      res.status(201).json({
-        ingestion_id: ingestionId,
-        records_processed: data.length,
-        status: 'completed'
-      });
-
-    } catch (error) {
-      console.error('Database operation failed:', {
-        error: error.message,
-        detail: error.detail,
-        hint: error.hint,
-        code: error.code
-      });
-      throw error;
     }
+
+    await client.query('COMMIT');
+    
+    res.status(201).json({
+      ingestion_id: ingestionId,
+      parent_ingestion_id: parentId,
+      records_processed: data.length,
+      status: 'completed'
+    });
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -263,10 +299,10 @@ const clearAllIngestions = async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    // Delete all claims from claims_dummy table
+    // First delete all claims data
     await client.query('DELETE FROM claims_dummy');
     
-    // Delete all records from ingested_data table
+    // Then delete all ingestion records
     await client.query('DELETE FROM ingested_data');
     
     await client.query('COMMIT');

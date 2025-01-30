@@ -165,86 +165,63 @@ const saveFilter = async (req, res) => {
 const executeFilter = async (req, res) => {
     const client = await pool.connect();
     try {
-        const { filter_id } = req.params;
-        const { page = 1, limit = 50, sortBy = 'claim_merged_id', sortOrder = 'ASC' } = req.query;
+        const { conditions, page = 1, limit = 50 } = req.body;
         const offset = (page - 1) * limit;
         const startTime = Date.now();
 
-        // Get filter conditions
-        const filterResult = await client.query(
-            'SELECT * FROM saved_filters WHERE filter_id = $1',
-            [filter_id]
-        );
+        // Build base query from conditions or use default
+        const { query: baseQuery, params } = conditions?.length > 0 
+            ? buildFilterQuery(conditions)
+            : { query: 'SELECT * FROM claims_dummy', params: [] };
 
-        if (filterResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Filter not found' });
-        }
-
-        const filter = filterResult.rows[0];
-        // Parse the conditions as they come as string from database
-        const conditions = typeof filter.conditions === 'string' 
-            ? JSON.parse(filter.conditions) 
-            : filter.conditions;
-
-        // Build and execute query based on conditions
-        const { query, params } = buildFilterQuery(conditions);
-        
-        // Add pagination and sorting
-        const paginatedQuery = `
-            ${query}
-            ORDER BY ${sortBy} ${sortOrder}
-            LIMIT $${params.length + 1} 
-            OFFSET $${params.length + 2}
+        // Get metadata for the filtered (or all) records
+        const statsQuery = `
+            WITH filtered_claims AS (${baseQuery})
+            SELECT 
+                COUNT(*) as total_records,
+                SUM(COALESCE(allowed_amount, 0)) as total_amount,
+                AVG(COALESCE(allowed_amount, 0)) as average_amount,
+                COUNT(DISTINCT patient_id) as unique_patients,
+                MIN(admission_date) as start_date,
+                MAX(admission_date) as end_date
+            FROM filtered_claims
         `;
-        
-        // Get total count
-        const countResult = await client.query(
-            `SELECT COUNT(*) FROM (${query}) AS filtered_count`,
-            params
-        );
+        const statsResult = await client.query(statsQuery, params);
+        const stats = statsResult.rows[0];
 
         // Get paginated results
-        const queryResult = await client.query(
-            paginatedQuery,
-            [...params, limit, offset]
-        );
-
-        // Save execution history
-        await client.query(
-            `INSERT INTO filter_results_history 
-             (filter_id, execution_time_ms, results_count, conditions_snapshot)
-             VALUES ($1, $2, $3, $4::jsonb)`,
-            [
-                filter_id,
-                Date.now() - startTime,
-                parseInt(countResult.rows[0].count),
-                JSON.stringify(conditions)
-            ]
-        );
-
-        // Update filter metadata
-        await client.query(
-            `UPDATE saved_filters 
-             SET last_run = CURRENT_TIMESTAMP,
-                 run_count = run_count + 1,
-                 claims_ids = $1
-             WHERE filter_id = $2`,
-            [JSON.stringify(queryResult.rows.map(r => r.claim_merged_id)), filter_id]
-        );
+        const paginatedQuery = `
+            WITH filtered_claims AS (${baseQuery})
+            SELECT * FROM filtered_claims
+            ORDER BY claim_merged_id
+            LIMIT ${limit} OFFSET ${offset}
+        `;
+        const result = await client.query(paginatedQuery, params);
 
         res.json({
-            results: queryResult.rows,
-            pagination: {
-                total: parseInt(countResult.rows[0].count),
-                page: parseInt(page),
-                limit: parseInt(limit),
-                pages: Math.ceil(parseInt(countResult.rows[0].count) / limit)
+            records: result.rows,
+            metadata: {
+                totalRecords: parseInt(stats.total_records),
+                totalAmount: parseFloat(stats.total_amount || 0),
+                averageAmount: parseFloat(stats.average_amount || 0),
+                uniquePatients: parseInt(stats.unique_patients),
+                currentPage: parseInt(page),
+                totalPages: Math.ceil(parseInt(stats.total_records) / limit),
+                pageSize: parseInt(limit),
+                dateRange: {
+                    start: stats.start_date,
+                    end: stats.end_date
+                }
             },
             execution_time_ms: Date.now() - startTime
         });
-    } catch (err) {
-        console.error('Error executing filter:', err);
-        res.status(500).json({ error: 'Internal server error', details: err.message });
+
+    } catch (error) {
+        console.error('Error executing filter:', error);
+        res.status(500).json({ 
+            error: 'Internal server error', 
+            details: error.message 
+        });
     } finally {
         client.release();
     }
@@ -397,9 +374,85 @@ const updateFilterClaimsIds = async (req, res) => {
     }
 };
 
+// Add this new function to get claims with statistics
+const getClaims = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { limit = 10, offset = 0 } = req.query;
+        
+        // Get paginated records with offset
+        const result = await client.query(
+            `SELECT * FROM claims_dummy 
+             ORDER BY claim_merged_id 
+             LIMIT $1 OFFSET $2`,
+            [limit, offset]
+        );
+
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error fetching claims:', error);
+        res.status(500).json({ 
+            error: 'Internal server error', 
+            details: error.message 
+        });
+    } finally {
+        client.release();
+    }
+};
+
+// Keep the count endpoint for pagination
+const getClaimsCount = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const result = await client.query('SELECT COUNT(*) FROM claims_dummy');
+        res.json({ total: parseInt(result.rows[0].count) });
+    } catch (error) {
+        console.error('Error getting claims count:', error);
+        res.status(500).json({ 
+            error: 'Internal server error', 
+            details: error.message 
+        });
+    } finally {
+        client.release();
+    }
+};
+
+// Add this new function to get total statistics
+const getClaimsMetadata = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const statsQuery = `
+            SELECT 
+                SUM(COALESCE(allowed_amount, 0)) as total_amount,
+                AVG(COALESCE(allowed_amount, 0)) as average_amount,
+                COUNT(DISTINCT patient_id) as unique_patients
+            FROM claims_dummy
+        `;
+        const result = await client.query(statsQuery);
+        const stats = result.rows[0];
+
+        res.json({
+            totalAmount: parseFloat(stats.total_amount || 0),
+            averageAmount: parseFloat(stats.average_amount || 0),
+            uniquePatients: parseInt(stats.unique_patients || 0)
+        });
+    } catch (error) {
+        console.error('Error getting claims metadata:', error);
+        res.status(500).json({ 
+            error: 'Internal server error', 
+            details: error.message 
+        });
+    } finally {
+        client.release();
+    }
+};
+
 module.exports = {
     getSavedFilters,
     saveFilter,
     executeFilter,
-    updateFilterClaimsIds
+    updateFilterClaimsIds,
+    getClaims,
+    getClaimsCount,
+    getClaimsMetadata
 };

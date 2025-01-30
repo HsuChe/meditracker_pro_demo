@@ -30,11 +30,11 @@ interface MappingManagerProps {
   onMappingSelect: (mappingId: number | null) => void
 }
 
-export function MappingManager({ csvColumns, dbColumns, currentMappings, onMappingChange, onMappingSelect }: MappingManagerProps) {
+export function MappingManager({ csvColumns, dbColumns: initialDbColumns, currentMappings, onMappingChange, onMappingSelect }: MappingManagerProps) {
   const [savedMappings, setSavedMappings] = useState<SavedMapping[]>([]);
   const [newMappingName, setNewMappingName] = useState("");
   const [selectedMapping, setSelectedMapping] = useState<string>("");
-  const [availableDbColumns, setAvailableDbColumns] = useState<string[]>(dbColumns);
+  const [availableDbColumns, setAvailableDbColumns] = useState<string[]>(initialDbColumns || []);
 
   // Fetch saved mappings when component mounts
   useEffect(() => {
@@ -53,24 +53,27 @@ export function MappingManager({ csvColumns, dbColumns, currentMappings, onMappi
     fetchSavedMappings();
   }, []);
 
-  // Add this useEffect to fetch database columns
+  // Fetch database columns
   useEffect(() => {
     const fetchDbColumns = async () => {
       try {
         const response = await fetch('http://localhost:5000/api/db-columns');
         if (response.ok) {
           const columns = await response.json();
-          setAvailableDbColumns(columns);
+          setAvailableDbColumns(prev => {
+            // Convert to array before sorting
+            const combined = Array.from(new Set([...prev, ...columns]));
+            return combined.sort();
+          });
         }
       } catch (error) {
         console.error('Error fetching database columns:', error);
-        // Fallback to props if API fails
-        setAvailableDbColumns(dbColumns);
+        setAvailableDbColumns(prev => prev);
       }
     };
 
     fetchDbColumns();
-  }, [dbColumns]);
+  }, []);
 
   // Handle loading a saved mapping
   const handleLoadMapping = useCallback((mappingId: string) => {
@@ -200,7 +203,6 @@ export function MappingManager({ csvColumns, dbColumns, currentMappings, onMappi
                 <Select
                   value={mapping.dbColumn}
                   onValueChange={(value) => {
-                    // Find the original index in currentMappings
                     const originalIndex = currentMappings.findIndex(
                       m => m.csvColumn === mapping.csvColumn
                     );

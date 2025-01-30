@@ -40,6 +40,17 @@ interface IngestionState {
   status: 'in_progress' | 'failed' | 'completed';
 }
 
+interface BatchPayload {
+  name: string;
+  data: any[];
+  mapping_id: number;
+  record_count: number;
+  file_size_bytes: number;
+  batch_number: number;
+  total_batches: number;
+  parent_ingestion_id: number | null;
+}
+
 export function ClaimsSubmitter({ 
   csvData, 
   mappingId, 
@@ -58,6 +69,23 @@ export function ClaimsSubmitter({
     currentBatch: 0,
     totalBatches: 0
   });
+
+  const [mappingData, setMappingData] = useState<any>(null);
+  useEffect(() => {
+    const fetchMapping = async () => {
+      if (!mappingId) return;
+      try {
+        const response = await fetch(`http://localhost:5000/api/mappings/${mappingId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setMappingData(data);
+        }
+      } catch (error) {
+        console.error('Error fetching mapping:', error);
+      }
+    };
+    fetchMapping();
+  }, [mappingId]);
 
   useEffect(() => {
     // Fetch saved mappings when component mounts
@@ -89,13 +117,17 @@ export function ClaimsSubmitter({
       onError("Please select a mapping configuration before submitting");
       return;
     }
+    if (!mappingData) {
+      onError("Mapping data not loaded");
+      return;
+    }
 
+    const headers = csvData[0];
     const startTime = Date.now();
     const validRows = csvData.slice(1).filter(row => 
       row.length > 1 && row.some((cell: string) => cell && cell.trim() !== '')
     );
 
-    const totalBytes = new Blob([csvData.map(row => row.join(',')).join('\n')]).size;
     const BATCH_SIZE = 5000;
     const totalBatches = Math.ceil(validRows.length / BATCH_SIZE);
     
@@ -105,22 +137,15 @@ export function ClaimsSubmitter({
       totalRows: validRows.length,
       startTime,
       uploadedBytes: 0,
-      totalBytes,
+      totalBytes: new Blob([csvData.map(row => row.join(',')).join('\n')]).size,
       isVisible: true,
       currentBatch: 0,
       totalBatches
     });
 
     try {
-      // Get the mapping first
-      const mappingResponse = await fetch(`http://localhost:5000/api/mappings/${mappingId}`);
-      if (!mappingResponse.ok) {
-        throw new Error('Failed to fetch mapping');
-      }
-      const mappingData = await mappingResponse.json();
-      const headers = csvData[0];
+      let parentIngestionId = null;
 
-      let processedRows = 0;
       // Process in batches
       for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
         const batchStart = batchIndex * BATCH_SIZE;
@@ -128,18 +153,7 @@ export function ClaimsSubmitter({
         const batchRows = validRows.slice(batchStart, batchEnd);
         
         // Transform batch data
-        const transformedBatch = batchRows.map((row, rowIndex) => {
-          // Update progress more frequently within the batch
-          processedRows++;
-          if (rowIndex % 100 === 0 || rowIndex === batchRows.length - 1) {
-            setUploadProgress(prev => ({
-              ...prev,
-              currentRow: processedRows,
-              uploadedBytes: Math.floor((processedRows / validRows.length) * totalBytes),
-              currentBatch: batchIndex + 1
-            }));
-          }
-
+        const transformedBatch = batchRows.map(row => {
           const transformed: any = {};
           mappingData.mappings.forEach((mapping: { csvColumn: string, dbColumn: string }) => {
             const columnIndex = headers.indexOf(mapping.csvColumn);
@@ -150,14 +164,15 @@ export function ClaimsSubmitter({
           return transformed;
         });
 
-        const batchPayload = {
-          name: `${ingestionName}_batch_${batchIndex + 1}`,
+        const batchPayload: BatchPayload = {
+          name: ingestionName,
           data: transformedBatch,
           mapping_id: mappingId,
           record_count: transformedBatch.length,
           file_size_bytes: new Blob([JSON.stringify(transformedBatch)]).size,
+          batch_number: batchIndex,
           total_batches: totalBatches,
-          batch_number: batchIndex + 1
+          parent_ingestion_id: parentIngestionId
         };
 
         // Upload batch
@@ -170,21 +185,26 @@ export function ClaimsSubmitter({
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(`Failed to submit batch ${batchIndex + 1}: ${errorData.error}`);
+          throw new Error(`Failed to submit batch ${batchIndex + 1}`);
         }
 
-        // Small delay to allow UI updates
-        await new Promise(resolve => setTimeout(resolve, 0));
+        const result = await response.json();
+        
+        // Store parent ID from first batch
+        if (batchIndex === 0) {
+          parentIngestionId = result.parent_ingestion_id;
+        }
+
+        // Update progress
+        const processedRows = (batchIndex + 1) * BATCH_SIZE;
+        setUploadProgress(prev => ({
+          ...prev,
+          currentRow: Math.min(processedRows, validRows.length),
+          uploadedBytes: Math.floor((processedRows / validRows.length) * prev.totalBytes),
+          currentBatch: batchIndex + 1
+        }));
       }
 
-      // Show completion
-      setUploadProgress(prev => ({
-        ...prev,
-        currentRow: validRows.length,
-        uploadedBytes: totalBytes,
-        currentBatch: totalBatches
-      }));
       onSuccess();
 
       // Wait before hiding progress
@@ -201,7 +221,7 @@ export function ClaimsSubmitter({
       onError(error instanceof Error ? error.message : 'Unknown error occurred');
       setUploadProgress(prev => ({ ...prev, isVisible: false }));
     }
-  }, [csvData, mappingId, ingestionName, onError, onSuccess]);
+  }, [csvData, mappingId, ingestionName, onError, onSuccess, mappingData]);
 
   const handleFileUpload = (file: File) => {
     parse<string[]>(file, {

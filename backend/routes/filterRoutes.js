@@ -5,19 +5,21 @@ const {
     getSavedFilters, 
     saveFilter, 
     executeFilter,
-    updateFilterClaimsIds 
+    updateFilterClaimsIds,
+    getClaims,
+    getClaimsCount,
+    getClaimsMetadata
 } = require('../controllers/filterController');
 
-// Get all saved filters with pagination and search
-router.get('/', getSavedFilters);
+// Claims endpoints
+router.get('/claims/count', getClaimsCount);  // This will be /api/claims/count
+router.get('/claims', getClaims);             // This will be /api/claims
+router.get('/claims/metadata', getClaimsMetadata);
 
-// Save a new filter
-router.post('/', saveFilter);
-
-// Execute a filter and get results
-router.post('/:filter_id/execute', executeFilter);
-
-// Update claims_ids for a filter
-router.put('/:filter_id/claims', updateFilterClaimsIds);
+// Filter-specific endpoints
+router.get('/filters/saved', getSavedFilters);
+router.post('/filters/save', saveFilter);
+router.post('/filters/execute', executeFilter);
+router.put('/filters/:filter_id/claims', updateFilterClaimsIds);
 
 module.exports = router;

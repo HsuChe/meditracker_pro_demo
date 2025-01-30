@@ -1,16 +1,28 @@
 // server.js
-require('dotenv').config();
+require('dotenv').config({
+  path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env'
+});
 const express = require('express');
 const cors = require('cors');
 const filterRoutes = require('./routes/filterRoutes');
 const claimRoutes = require('./routes/claimRoutes');
-const claimRoutesDummy = require('./routes/claimRoutesDummy'); // Import the dummy claim routes
-const ingestedDataRoutes = require('./routes/ingestedDataRoutes'); // Add this line
-const mappingRoutes = require('./routes/mappingRoutes'); // Add this line
-const dbColumnsRoutes = require('./routes/dbColumnsRoutes'); // Add this line
+const ingestedDataRoutes = require('./routes/ingestedDataRoutes');
+const mappingRoutes = require('./routes/mappingRoutes');
+const dbColumnsRoutes = require('./routes/dbColumnsRoutes');
 const lutController = require('./controllers/lutController');
 
 const app = express();
+
+// Log environment configuration on startup
+console.log('Current environment:', process.env.NODE_ENV);
+console.log('Database connection details:', {
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD ? '[password provided]' : '[no password]',
+  passwordLength: process.env.DB_PASSWORD ? process.env.DB_PASSWORD.length : 0
+});
 
 // Increase payload size limits even further for large CSV files
 app.use(express.json({ 
@@ -30,14 +42,12 @@ app.use(express.urlencoded({
   parameterLimit: 50000
 }));
 
-// Configure CORS with more specific options
+// Configure CORS for development
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? process.env.FRONTEND_URL 
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   credentials: true,
-  maxAge: 86400, // CORS preflight cache time
+  maxAge: 86400,
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
@@ -47,15 +57,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes
-app.use('/api/filters', filterRoutes);
+// Routes - Order matters! More specific routes should come first
+app.use('/api/db-columns', dbColumnsRoutes);
+app.use('/api', filterRoutes);
 app.use('/api/claims', claimRoutes);
-app.use('/api/dummy-claims', claimRoutesDummy); // Use the dummy claim routes
-app.use('/api/ingested-data', ingestedDataRoutes); // Add this line
-app.use('/api/mappings', mappingRoutes); // Add this line
-app.use('/api/db-columns', dbColumnsRoutes); // Add this line
+app.use('/api/ingested-data', ingestedDataRoutes);
+app.use('/api/mappings', mappingRoutes);
 
-// LUT routes
+// LUT routes (kept separate from claims data)
 app.post('/api/luts', lutController.createLUT);
 app.get('/api/luts', lutController.getLUTs);
 app.get('/api/luts/:id', lutController.getLUTDetails);
@@ -102,6 +111,15 @@ app.use((req, res) => {
   });
 });
 
+// Add a test endpoint to verify the server is running
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok',
+    environment: process.env.NODE_ENV,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Move the server listening part to only run if not being tested
 if (process.env.NODE_ENV !== 'test') {
     const PORT = process.env.PORT || 5000;
@@ -112,5 +130,4 @@ if (process.env.NODE_ENV !== 'test') {
     });
 }
 
-// Export the app for testing
 module.exports = app;

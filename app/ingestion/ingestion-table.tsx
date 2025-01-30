@@ -8,12 +8,11 @@ import { StatusBadge } from "@/components/ui/status-badge"
 import { Spinner } from "@/components/ui/spinner"
 import { Input } from "@/components/ui/input"
 import { DatePickerWithRange } from "@/components/ui/date-range-picker"
-import { Search } from "lucide-react"
+import { Search, ChevronDown, ChevronRight } from "lucide-react"
 import { addDays } from "date-fns"
 
 interface IngestedData {
-  ingested_data_id?: number;
-  lut_id?: number;
+  ingested_data_id: number;
   name: string;
   type: string;
   ingestion_date: string;
@@ -21,6 +20,15 @@ interface IngestedData {
   file_size_bytes: number;
   activity_status: 'active' | 'deleted';
   processing_status: 'processing' | 'completed' | 'failed';
+  batch_number?: number;
+  total_batches?: number;
+}
+
+interface GroupedIngestedData {
+  name: string;
+  batches: IngestedData[];
+  totalRecords: number;
+  totalSize: number;
 }
 
 interface PaginationState {
@@ -43,7 +51,8 @@ interface IngestionTableProps {
 }
 
 export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTableProps) {
-  const [ingestedData, setIngestedData] = useState<IngestedData[]>([]);
+  const [ingestedData, setIngestedData] = useState<GroupedIngestedData[]>([]);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({
     currentPage: 1,
@@ -58,6 +67,18 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
       to: undefined
     }
   });
+
+  const toggleGroup = (groupName: string) => {
+    setExpandedGroups(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(groupName)) {
+        newSet.delete(groupName);
+      } else {
+        newSet.add(groupName);
+      }
+      return newSet;
+    });
+  };
 
   const fetchIngestedData = async () => {
     setLoading(true);
@@ -85,10 +106,27 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
 
       if (response.ok) {
         const data = await response.json();
-        setIngestedData(data.records.map((record: any) => ({
-          ...record,
-          type: activeTab === 'csv' ? 'CSV' : 'LUT'
-        })));
+        
+        // Group the data by ingestion name
+        const groupedData = data.records.reduce((acc: GroupedIngestedData[], item: IngestedData) => {
+          const existingGroup = acc.find(group => group.name === item.name);
+          
+          if (existingGroup) {
+            existingGroup.batches.push(item);
+            existingGroup.totalRecords += item.record_count;
+            existingGroup.totalSize += item.file_size_bytes;
+          } else {
+            acc.push({
+              name: item.name,
+              batches: [item],
+              totalRecords: item.record_count,
+              totalSize: item.file_size_bytes
+            });
+          }
+          return acc;
+        }, []);
+
+        setIngestedData(groupedData);
         setPagination(prev => ({
           ...prev,
           totalRecords: data.pagination.totalRecords,
@@ -222,7 +260,7 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
       </div>
 
       <div className="text-sm text-muted-foreground mb-4">
-        Total Records: {pagination.totalRecords.toLocaleString()}
+        Total Records: {(pagination.totalRecords || 0).toLocaleString()}
       </div>
 
       {loading ? (
@@ -234,55 +272,96 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[30px]"></TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Date</TableHead>
-                <TableHead>Records</TableHead>
-                <TableHead>Size</TableHead>
+                <TableHead>Total Records</TableHead>
+                <TableHead>Total Size</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {ingestedData.map((data) => (
-                <TableRow key={data.ingested_data_id || data.lut_id}>
-                  <TableCell>{data.name}</TableCell>
-                  <TableCell>{data.type}</TableCell>
-                  <TableCell>
-                    {new Date(data.ingestion_date).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell>
-                    {data.record_count.toLocaleString()}
-                  </TableCell>
-                  <TableCell>
-                    {formatSize(data.file_size_bytes)}
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge 
-                      activity_status={data.activity_status} 
-                      processing_status={data.processing_status} 
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => handleView(data.ingested_data_id || data.lut_id!, data.type)}
-                      >
-                        Details
-                      </Button>
+              {ingestedData.map((group) => (
+                <>
+                  <TableRow 
+                    key={group.name}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => toggleGroup(group.name)}
+                  >
+                    <TableCell>
+                      {expandedGroups.has(group.name) ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                    </TableCell>
+                    <TableCell className="font-medium">{group.name}</TableCell>
+                    <TableCell>{group.batches[0].type}</TableCell>
+                    <TableCell>
+                      {new Date(group.batches[0].ingestion_date).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>{group.totalRecords.toLocaleString()}</TableCell>
+                    <TableCell>{formatSize(group.totalSize)}</TableCell>
+                    <TableCell>
+                      <StatusBadge 
+                        activity_status={group.batches[0].activity_status}
+                        processing_status={group.batches[0].processing_status}
+                      />
+                    </TableCell>
+                    <TableCell>
                       <Button
                         variant="destructive"
                         size="sm"
-                        onClick={() => handleDelete(data.ingested_data_id || data.lut_id!, data.type)}
-                        disabled={data.processing_status === 'processing'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(group.batches[0].ingested_data_id, group.batches[0].type);
+                        }}
                       >
-                        Delete
+                        Delete All
                       </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                    </TableCell>
+                  </TableRow>
+                  {expandedGroups.has(group.name) && group.batches.map((batch) => (
+                    <TableRow key={batch.ingested_data_id} className="bg-muted/30">
+                      <TableCell></TableCell>
+                      <TableCell className="pl-8">
+                        Batch {batch.batch_number} of {batch.total_batches}
+                      </TableCell>
+                      <TableCell>{batch.type}</TableCell>
+                      <TableCell>
+                        {new Date(batch.ingestion_date).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>{batch.record_count.toLocaleString()}</TableCell>
+                      <TableCell>{formatSize(batch.file_size_bytes)}</TableCell>
+                      <TableCell>
+                        <StatusBadge 
+                          activity_status={batch.activity_status}
+                          processing_status={batch.processing_status}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => handleView(batch.ingested_data_id, batch.type)}
+                          >
+                            Details
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDelete(batch.ingested_data_id, batch.type)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </>
               ))}
             </TableBody>
           </Table>
@@ -290,8 +369,8 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
           <div className="mt-4 flex justify-between items-center">
             <div className="text-sm text-muted-foreground">
               Showing {((pagination.currentPage - 1) * pagination.pageSize) + 1} to{' '}
-              {Math.min(pagination.currentPage * pagination.pageSize, pagination.totalRecords)}{' '}
-              of {pagination.totalRecords.toLocaleString()} records
+              {Math.min(pagination.currentPage * pagination.pageSize, pagination.totalRecords || 0)}{' '}
+              of {(pagination.totalRecords || 0).toLocaleString()} records
             </div>
             <Pagination
               currentPage={pagination.currentPage}
