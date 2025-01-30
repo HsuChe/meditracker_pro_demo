@@ -143,12 +143,15 @@ export function MappingManager({ csvColumns, dbColumns, currentMappings, onMappi
   );
 
   return (
-    <div className="space-y-4">
-      <div className="flex gap-4 items-end">
-        <div className="flex-1">
-          <Label htmlFor="saved-mappings">Load Saved Mapping</Label>
-          <Select value={selectedMapping} onValueChange={handleLoadMapping}>
-            <SelectTrigger id="saved-mappings">
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-6">
+        {/* Load Saved Mapping Column */}
+        <div className="space-y-2">
+          <Label htmlFor="saved-mapping" className="block text-sm font-medium">
+            Load Saved Mapping
+          </Label>
+          <Select onValueChange={handleLoadMapping}>
+            <SelectTrigger id="saved-mapping" className="w-full">
               <SelectValue placeholder="Select a saved mapping" />
             </SelectTrigger>
             <SelectContent>
@@ -160,20 +163,28 @@ export function MappingManager({ csvColumns, dbColumns, currentMappings, onMappi
             </SelectContent>
           </Select>
         </div>
-        <div className="flex-1">
-          <Label htmlFor="new-mapping-name">Save Current Mapping</Label>
-          <div className="flex gap-2">
+
+        {/* Save Current Mapping Column */}
+        <div className="space-y-2">
+          <Label htmlFor="new-mapping-name" className="block text-sm font-medium">
+            Save Current Mapping
+          </Label>
+          <div className="flex gap-1.5 items-center">
             <Input
               id="new-mapping-name"
               value={newMappingName}
               onChange={(e) => setNewMappingName(e.target.value)}
               placeholder="Enter mapping name"
+              className="flex-1"
             />
-            <Button onClick={handleSaveMapping}>Save</Button>
+            <Button onClick={handleSaveMapping} className="-ml-0.5">
+              Save
+            </Button>
           </div>
         </div>
       </div>
 
+      {/* Mapping Table */}
       <Table>
         <TableHeader>
           <TableRow>

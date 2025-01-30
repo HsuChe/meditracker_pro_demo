@@ -161,19 +161,38 @@ export default function IngestionPage() {
       <h1 className="text-3xl font-bold mb-8">Data Ingestion</h1>
 
       <Tabs defaultValue="csv" className="mb-8">
-        <TabsList>
-          <TabsTrigger value="csv">CSV Upload</TabsTrigger>
-          <TabsTrigger value="lut">LUT Input</TabsTrigger>
-        </TabsList>
-        <TabsContent value="csv">
-          <Card>
+        <div className="border-b border-border">
+          <TabsList className="h-10 w-full bg-transparent justify-start rounded-none">
+            <TabsTrigger 
+              value="csv" 
+              className="data-[state=active]:bg-background data-[state=active]:border-border data-[state=active]:border-b-0 data-[state=active]:shadow-none rounded-b-none px-6 border-2 border-transparent"
+            >
+              CSV Upload
+            </TabsTrigger>
+            <TabsTrigger 
+              value="lut" 
+              className="data-[state=active]:bg-background data-[state=active]:border-border data-[state=active]:border-b-0 data-[state=active]:shadow-none rounded-b-none px-6 border-2 border-transparent"
+            >
+              LUT Input
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="csv" className="border-x border-b rounded-t-none">
+          <Card className="border-0 shadow-none">
             <CardHeader>
               <CardTitle>CSV Upload and Mapping</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="mb-4">
-                <Label htmlFor="csv-file">Upload CSV File</Label>
-                <FileInput id="csv-file" accept=".csv" onChange={(e) => handleFileUpload(e)} />
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="csv-file" className="block text-sm font-medium">
+                  Upload CSV File
+                </Label>
+                <FileInput 
+                  id="csv-file" 
+                  accept=".csv" 
+                  onChange={(e) => handleFileUpload(e)} 
+                  className="w-full"
+                />
                 {fileMetadata && (
                   <div className="mt-2 text-sm text-muted-foreground space-y-1">
                     <p className="font-medium text-foreground">{fileMetadata.name}</p>
@@ -187,13 +206,15 @@ export default function IngestionPage() {
               </div>
               {csvData.length > 0 && (
                 <>
-                  <MappingManager
-                    csvColumns={csvData[0]}
-                    dbColumns={dbColumns}
-                    currentMappings={mappings}
-                    onMappingChange={setMappings}
-                    onMappingSelect={setSelectedMappingId}
-                  />
+                  <div className="space-y-2">
+                    <MappingManager
+                      csvColumns={csvData[0]}
+                      dbColumns={dbColumns}
+                      currentMappings={mappings}
+                      onMappingChange={setMappings}
+                      onMappingSelect={setSelectedMappingId}
+                    />
+                  </div>
                   <ClaimsSubmitter 
                     csvData={csvData}
                     mappingId={selectedMappingId}
@@ -210,8 +231,8 @@ export default function IngestionPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        <TabsContent value="lut">
-          <Card>
+        <TabsContent value="lut" className="border-x border-b rounded-t-none">
+          <Card className="border-0 shadow-none">
             <CardHeader>
               <CardTitle>LUT Input</CardTitle>
             </CardHeader>
