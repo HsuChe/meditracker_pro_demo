@@ -48,7 +48,7 @@ app.use((req, res, next) => {
 });
 
 // Routes
-app.use('/api/saved-filters', filterRoutes);
+app.use('/api/filters', filterRoutes);
 app.use('/api/claims', claimRoutes);
 app.use('/api/dummy-claims', claimRoutesDummy); // Use the dummy claim routes
 app.use('/api/ingested-data', ingestedDataRoutes); // Add this line
@@ -102,9 +102,15 @@ app.use((req, res) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log('Environment:', process.env.NODE_ENV);
-  console.log('Database URL:', process.env.DATABASE_URL?.replace(/:[^:@]*@/, ':****@'));
-});
+// Move the server listening part to only run if not being tested
+if (process.env.NODE_ENV !== 'test') {
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+        console.log('Environment:', process.env.NODE_ENV);
+        console.log('Database URL:', process.env.DATABASE_URL?.replace(/:[^:@]*@/, ':****@'));
+    });
+}
+
+// Export the app for testing
+module.exports = app;

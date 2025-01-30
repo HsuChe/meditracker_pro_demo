@@ -4,20 +4,20 @@ const router = express.Router();
 const { 
     getSavedFilters, 
     saveFilter, 
-    deleteFilter, 
-    updateClaimsIds 
+    executeFilter,
+    updateFilterClaimsIds 
 } = require('../controllers/filterController');
 
-// GET all saved filters
+// Get all saved filters with pagination and search
 router.get('/', getSavedFilters);
 
-// POST new filter
+// Save a new filter
 router.post('/', saveFilter);
 
-// DELETE a filter
-router.delete('/:id', deleteFilter);
+// Execute a filter and get results
+router.post('/:filter_id/execute', executeFilter);
 
-// UPDATE claims_ids
-router.put('/update', updateClaimsIds);
+// Update claims_ids for a filter
+router.put('/:filter_id/claims', updateFilterClaimsIds);
 
 module.exports = router;
