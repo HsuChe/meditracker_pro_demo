@@ -92,7 +92,7 @@ export function ClaimsSubmitter({
 
     const startTime = Date.now();
     const validRows = csvData.slice(1).filter(row => 
-      row.length > 1 && row.some(cell => cell && cell.trim() !== '')
+      row.length > 1 && row.some((cell: string) => cell && cell.trim() !== '')
     );
 
     const totalBytes = new Blob([csvData.map(row => row.join(',')).join('\n')]).size;
@@ -204,8 +204,13 @@ export function ClaimsSubmitter({
   }, [csvData, mappingId, ingestionName, onError, onSuccess]);
 
   const handleFileUpload = (file: File) => {
-    parse(file, {
-      // parsing options
+    parse<string[]>(file, {
+      complete: (results) => {
+        console.log(results.data);
+      },
+      error: (error) => {
+        console.error('Error parsing CSV:', error);
+      }
     });
   };
 

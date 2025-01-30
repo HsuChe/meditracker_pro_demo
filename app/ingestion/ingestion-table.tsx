@@ -103,8 +103,8 @@ export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
     } catch (error) {
       // More detailed error logging
       console.error('Error fetching ingested data:', {
-        message: error.message,
-        stack: error.stack,
+        message: (error as Error).message,
+        stack: (error as Error).stack,
         error
       });
     } finally {
@@ -209,7 +209,10 @@ export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
               date={searchFilters.dateRange}
               onDateChange={(newDate) => setSearchFilters(prev => ({
                 ...prev,
-                dateRange: newDate
+                dateRange: {
+                  from: newDate?.from,
+                  to: newDate?.to
+                }
               }))}
             />
           </div>

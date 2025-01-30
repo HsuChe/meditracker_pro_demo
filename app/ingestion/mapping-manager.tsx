@@ -31,7 +31,7 @@ interface MappingManagerProps {
 }
 
 export function MappingManager({ csvColumns, dbColumns, currentMappings, onMappingChange, onMappingSelect }: MappingManagerProps) {
-  const [savedMappings, setSavedMappings] = useState<Array<{id: number, name: string, mappings: Mapping[]}>>([]);
+  const [savedMappings, setSavedMappings] = useState<SavedMapping[]>([]);
   const [newMappingName, setNewMappingName] = useState("");
   const [selectedMapping, setSelectedMapping] = useState<string>("");
   const [availableDbColumns, setAvailableDbColumns] = useState<string[]>(dbColumns);
