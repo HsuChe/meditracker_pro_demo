@@ -1,15 +1,14 @@
-import "./globals.css"
-import { Navbar } from "@/components/navbar"
-import { ThemeProvider } from "@/components/theme-provider"
+import type { Metadata } from "next"
 import { Inter } from "next/font/google"
-import { cn } from "@/lib/utils"
 import "./globals.css"
+import { ThemeProvider } from "@/components/layout/theme-provider"
+import { Navbar } from "@/components/layout/navbar"
 
 const inter = Inter({ subsets: ["latin"] })
 
-export const metadata = {
-  title: "MediTrack Pro",
-  description: "Advanced Medical Product Management System",
+export const metadata: Metadata = {
+  title: "MediTracker Pro",
+  description: "Medical claims tracking and analysis",
 }
 
 export default function RootLayout({
@@ -19,11 +18,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={cn(inter.className, "min-h-screen bg-background antialiased")}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+      <body className={inter.className} suppressHydrationWarning>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
           <Navbar />
-          <main className="min-h-screen flex flex-col items-center p-responsive">
-            <div className="container mx-auto w-full">{children}</div>
+          <main className="container mx-auto px-4 py-8">
+            {children}
           </main>
         </ThemeProvider>
       </body>

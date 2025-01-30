@@ -9,12 +9,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FileInput } from "@/components/ui/file-input"
+import { IngestionTable } from "./ingestion-table"
+import { MappingManager } from "./mapping-manager"
+import { ClaimsSubmitter } from "./claims-submitter"
 
 interface Ingestion {
   id: number
   name: string
   type: string
   date: string
+  recordsCount?: number
 }
 
 interface Mapping {
@@ -27,6 +31,32 @@ interface SavedMapping {
   mappings: Mapping[]
 }
 
+interface DummyClaim {
+  claim_id: string
+  patient_id: string
+  date_of_birth: string
+  gender: string
+  provider_id: string
+  facility_id: string
+  diagnosis_code: string
+  procedure_code: string
+  admission_date: string
+  discharge_date: string
+  revenue_code: string
+  modifiers: string
+  claim_type: string
+  total_charges: number
+  allowed_amount: number
+}
+
+interface IngestionHistory {
+  id: number
+  name: string
+  type: string
+  date: string
+  recordsCount: number
+}
+
 export default function IngestionPage() {
   const [ingestions, setIngestions] = useState<Ingestion[]>([
     { id: 1, name: "Product List", type: "CSV", date: "2023-04-01" },
@@ -34,14 +64,42 @@ export default function IngestionPage() {
   ])
   const [csvData, setCsvData] = useState<string[][]>([])
   const [mappings, setMappings] = useState<Mapping[]>([])
-  const [savedMappings, setSavedMappings] = useState<SavedMapping[]>([])
-  const [selectedMapping, setSelectedMapping] = useState<string>("")
-  const [newMappingName, setNewMappingName] = useState<string>("")
   const [lutName, setLutName] = useState<string>("")
   const [lutData, setLutData] = useState<string>("")
   const [lutCsvData, setLutCsvData] = useState<string[][]>([])
+  const [selectedMappingId, setSelectedMappingId] = useState<number | null>(null)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [fileMetadata, setFileMetadata] = useState<{
+    name: string;
+    size: number;
+    rows: number;
+    columns: number;
+  } | null>(null);
 
-  const dbColumns = ["id", "name", "price", "category", "description"] // Example database columns
+  const dbColumns = [
+    "claim_id",
+    "patient_id",
+    "date_of_birth",
+    "gender",
+    "provider_id",
+    "facility_id",
+    "diagnosis_code",
+    "procedure_code",
+    "admission_date",
+    "discharge_date",
+    "revenue_code",
+    "modifiers",
+    "claim_type",
+    "total_charges",
+    "allowed_amount"
+  ]
+
+  const formatBytes = (bytes: number) => {
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    if (bytes === 0) return '0 Byte';
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
+  };
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>, isLut = false) => {
     const file = event.target.files?.[0]
@@ -60,36 +118,33 @@ export default function IngestionPage() {
           )
         } else {
           setCsvData(rows)
-          setMappings(rows[0].map((header) => ({ csvColumn: header, dbColumn: "" })))
+          // Set file metadata
+          setFileMetadata({
+            name: file.name,
+            size: file.size,
+            rows: rows.length - 1, // Exclude header row
+            columns: rows[0].length
+          });
+          setMappings(rows[0].map((header) => {
+            const existingMapping = mappings.find(m => m.csvColumn === header);
+            return {
+              csvColumn: header,
+              dbColumn: existingMapping?.dbColumn || ""
+            };
+          }));
         }
       }
       reader.readAsText(file)
+    } else {
+      setFileMetadata(null);
     }
-  }, [])
+  }, [mappings])
 
   const handleMappingChange = useCallback((csvColumn: string, dbColumn: string) => {
     setMappings((prevMappings) =>
       prevMappings.map((mapping) => (mapping.csvColumn === csvColumn ? { ...mapping, dbColumn } : mapping)),
     )
   }, [])
-
-  const handleSaveMapping = useCallback(() => {
-    if (newMappingName) {
-      setSavedMappings((prevMappings) => [...prevMappings, { name: newMappingName, mappings }])
-      setNewMappingName("")
-    }
-  }, [newMappingName, mappings])
-
-  const handleLoadMapping = useCallback(
-    (mappingName: string) => {
-      const mapping = savedMappings.find((m) => m.name === mappingName)
-      if (mapping) {
-        setMappings(mapping.mappings)
-        setSelectedMapping(mappingName)
-      }
-    },
-    [savedMappings],
-  )
 
   const handleLUTSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
@@ -119,64 +174,37 @@ export default function IngestionPage() {
               <div className="mb-4">
                 <Label htmlFor="csv-file">Upload CSV File</Label>
                 <FileInput id="csv-file" accept=".csv" onChange={(e) => handleFileUpload(e)} />
+                {fileMetadata && (
+                  <div className="mt-2 text-sm text-muted-foreground space-y-1">
+                    <p className="font-medium text-foreground">{fileMetadata.name}</p>
+                    <div className="grid grid-cols-3 gap-4">
+                      <p>Size: {formatBytes(fileMetadata.size)}</p>
+                      <p>Rows: {fileMetadata.rows.toLocaleString()}</p>
+                      <p>Columns: {fileMetadata.columns}</p>
+                    </div>
+                  </div>
+                )}
               </div>
               {csvData.length > 0 && (
                 <>
-                  <div className="mb-4">
-                    <Label htmlFor="saved-mappings">Load Saved Mapping</Label>
-                    <Select value={selectedMapping} onValueChange={handleLoadMapping}>
-                      <SelectTrigger id="saved-mappings">
-                        <SelectValue placeholder="Select a saved mapping" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {savedMappings.map((mapping) => (
-                          <SelectItem key={mapping.name} value={mapping.name}>
-                            {mapping.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>CSV Column</TableHead>
-                        <TableHead>Database Column</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {mappings.map((mapping) => (
-                        <TableRow key={mapping.csvColumn}>
-                          <TableCell>{mapping.csvColumn}</TableCell>
-                          <TableCell>
-                            <Select
-                              value={mapping.dbColumn}
-                              onValueChange={(value) => handleMappingChange(mapping.csvColumn, value)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select database column" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {dbColumns.map((column) => (
-                                  <SelectItem key={column} value={column}>
-                                    {column}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  <div className="mt-4 flex items-center gap-4">
-                    <Input
-                      placeholder="Enter mapping name"
-                      value={newMappingName}
-                      onChange={(e) => setNewMappingName(e.target.value)}
-                    />
-                    <Button onClick={handleSaveMapping}>Save Mapping</Button>
-                  </div>
+                  <MappingManager
+                    csvColumns={csvData[0]}
+                    dbColumns={dbColumns}
+                    currentMappings={mappings}
+                    onMappingChange={setMappings}
+                    onMappingSelect={setSelectedMappingId}
+                  />
+                  <ClaimsSubmitter 
+                    csvData={csvData}
+                    mappingId={selectedMappingId}
+                    onSuccess={() => {
+                      alert('Claims submitted successfully');
+                      setRefreshTrigger(prev => prev + 1);
+                    }}
+                    onError={(error: string) => {
+                      alert(`Error: ${error}`);
+                    }}
+                  />
                 </>
               )}
             </CardContent>
@@ -247,38 +275,7 @@ export default function IngestionPage() {
         </TabsContent>
       </Tabs>
 
-      <h2 className="text-2xl font-semibold mb-4">Ingested Data</h2>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Date</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {ingestions.map((ingestion) => (
-            <TableRow key={ingestion.id}>
-              <TableCell>{ingestion.name}</TableCell>
-              <TableCell>{ingestion.type}</TableCell>
-              <TableCell>{ingestion.date}</TableCell>
-              <TableCell>
-                <Button variant="outline" size="sm" className="mr-2">
-                  Edit
-                </Button>
-                <Button
-                  variant="destructive"
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  size="sm"
-                >
-                  Delete
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <IngestionTable refreshTrigger={refreshTrigger} />
     </div>
   )
 }
