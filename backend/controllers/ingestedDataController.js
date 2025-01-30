@@ -1,47 +1,54 @@
 const pool = require('../config/db.config');
 
 const getIngestedData = async (req, res) => {
-  const client = await pool.connect();
+  const { page = 1, pageSize = 50, name, fromDate, toDate } = req.query;
+  const offset = (page - 1) * pageSize;
+
   try {
-    const { page = 1, pageSize = 50 } = req.query;
-    const offset = (page - 1) * pageSize;
+    let query = 'SELECT * FROM ingested_data WHERE 1=1';
+    const params = [];
+    let paramCount = 1;
 
-    // Use parallel queries for better performance
-    const [countResult, dataResult] = await Promise.all([
-      client.query('SELECT COUNT(*) FROM ingested_data WHERE activity_status = $1', ['active']),
-      client.query(`
-        SELECT 
-          id.*,
-          COUNT(cd.id) as current_record_count,
-          id.file_size_bytes as total_size_bytes,
-          id.activity_status,
-          id.processing_status
-        FROM ingested_data id
-        LEFT JOIN claims_dummy cd ON id.ingested_data_id = cd.ingestion_id
-        WHERE id.activity_status = $1
-        GROUP BY id.ingested_data_id
-        ORDER BY id.ingestion_date DESC
-        LIMIT $2 OFFSET $3
-      `, ['active', pageSize, offset])
-    ]);
+    if (name) {
+      query += ` AND name ILIKE $${paramCount}`;
+      params.push(`%${name}%`);
+      paramCount++;
+    }
 
-    const totalRecords = parseInt(countResult.rows[0].count);
-    const totalPages = Math.ceil(totalRecords / pageSize);
+    if (fromDate) {
+      query += ` AND ingestion_date >= $${paramCount}`;
+      params.push(fromDate);
+      paramCount++;
+    }
+
+    if (toDate) {
+      query += ` AND ingestion_date <= $${paramCount}`;
+      params.push(toDate);
+      paramCount++;
+    }
+
+    // Get total count
+    const countResult = await pool.query(
+      query.replace('SELECT *', 'SELECT COUNT(*)'),
+      params
+    );
+
+    // Get paginated data
+    query += ` ORDER BY ingestion_date DESC LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
+    const dataResult = await pool.query(query, [...params, pageSize, offset]);
 
     res.json({
       records: dataResult.rows,
       pagination: {
         currentPage: parseInt(page),
         pageSize: parseInt(pageSize),
-        totalPages,
-        totalRecords
+        totalPages: Math.ceil(parseInt(countResult.rows[0].count) / pageSize),
+        totalRecords: parseInt(countResult.rows[0].count)
       }
     });
   } catch (error) {
     console.error('Error fetching ingested data:', error);
     res.status(500).json({ error: 'Internal server error' });
-  } finally {
-    client.release();
   }
 };
 

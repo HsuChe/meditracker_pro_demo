@@ -6,6 +6,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Pagination } from "@/components/ui/pagination"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { Spinner } from "@/components/ui/spinner"
+import { Input } from "@/components/ui/input"
+import { DatePickerWithRange } from "@/components/ui/date-range-picker"
+import { Search } from "lucide-react"
+import { addDays } from "date-fns"
 
 interface IngestedData {
   ingested_data_id: number;
@@ -31,6 +35,14 @@ interface PaginationState {
   total: number;
 }
 
+interface SearchFilters {
+  name: string;
+  dateRange: {
+    from: Date | undefined;
+    to: Date | undefined;
+  };
+}
+
 interface IngestionTableProps {
   refreshTrigger?: number;
 }
@@ -44,12 +56,35 @@ export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
     totalRecords: 0,
     pageSize: 50
   });
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>({
+    name: "",
+    dateRange: {
+      from: undefined,
+      to: undefined
+    }
+  });
 
   const fetchIngestedData = async () => {
     setLoading(true);
     try {
+      // Build query params
+      const params = new URLSearchParams({
+        page: pagination.currentPage.toString(),
+        pageSize: pagination.pageSize.toString()
+      });
+
+      if (searchFilters.name) {
+        params.append('name', searchFilters.name);
+      }
+      if (searchFilters.dateRange.from) {
+        params.append('fromDate', searchFilters.dateRange.from.toISOString());
+      }
+      if (searchFilters.dateRange.to) {
+        params.append('toDate', searchFilters.dateRange.to.toISOString());
+      }
+
       const response = await fetch(
-        `http://localhost:5000/api/ingested-data?page=${pagination.currentPage}&pageSize=${pagination.pageSize}`
+        `http://localhost:5000/api/ingested-data?${params.toString()}`
       );
       
       if (response.ok) {
@@ -79,7 +114,7 @@ export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
 
   useEffect(() => {
     fetchIngestedData();
-  }, [pagination.currentPage, pagination.pageSize, refreshTrigger]);
+  }, [pagination.currentPage, pagination.pageSize, refreshTrigger, searchFilters]);
 
   const handleView = useCallback(async (id: number) => {
     try {
@@ -142,17 +177,47 @@ export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
 
   return (
     <div className="mt-8">
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-semibold">Ingested Data</h2>
-        <div className="text-sm text-muted-foreground">
-          Total Records: {pagination.totalRecords.toLocaleString()}
-        </div>
         <Button 
           variant="destructive" 
           onClick={handleClearAll}
         >
           Clear All
         </Button>
+      </div>
+
+      {/* Search and Filter Section */}
+      <div className="mb-6 space-y-4">
+        <div className="flex gap-4">
+          <div className="flex-1">
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name..."
+                value={searchFilters.name}
+                onChange={(e) => setSearchFilters(prev => ({
+                  ...prev,
+                  name: e.target.value
+                }))}
+                className="pl-8"
+              />
+            </div>
+          </div>
+          <div className="w-[300px]">
+            <DatePickerWithRange
+              date={searchFilters.dateRange}
+              onDateChange={(newDate) => setSearchFilters(prev => ({
+                ...prev,
+                dateRange: newDate
+              }))}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="text-sm text-muted-foreground mb-4">
+        Total Records: {pagination.totalRecords.toLocaleString()}
       </div>
 
       {loading ? (
