@@ -8,6 +8,7 @@ const claimRoutesDummy = require('./routes/claimRoutesDummy'); // Import the dum
 const ingestedDataRoutes = require('./routes/ingestedDataRoutes'); // Add this line
 const mappingRoutes = require('./routes/mappingRoutes'); // Add this line
 const dbColumnsRoutes = require('./routes/dbColumnsRoutes'); // Add this line
+const lutController = require('./controllers/lutController');
 
 const app = express();
 
@@ -53,6 +54,12 @@ app.use('/api/dummy-claims', claimRoutesDummy); // Use the dummy claim routes
 app.use('/api/ingested-data', ingestedDataRoutes); // Add this line
 app.use('/api/mappings', mappingRoutes); // Add this line
 app.use('/api/db-columns', dbColumnsRoutes); // Add this line
+
+// LUT routes
+app.post('/api/luts', lutController.createLUT);
+app.get('/api/luts', lutController.getLUTs);
+app.get('/api/luts/:id', lutController.getLUTDetails);
+app.delete('/api/luts/:id', lutController.deleteLUT);
 
 // More detailed error handling middleware
 app.use((err, req, res, next) => {

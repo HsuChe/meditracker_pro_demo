@@ -75,6 +75,7 @@ export default function IngestionPage() {
     rows: number;
     columns: number;
   } | null>(null);
+  const [activeTab, setActiveTab] = useState<'csv' | 'lut'>('csv');
 
   const dbColumns = [
     "claim_id",
@@ -146,21 +147,46 @@ export default function IngestionPage() {
     )
   }, [])
 
-  const handleLUTSubmit = useCallback(
-    (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      // Handle LUT submission logic here
-      console.log("LUT submitted", { lutName, lutData })
-      // You would typically send this data to your backend here
-    },
-    [lutName, lutData],
-  )
+  const handleLUTSubmit = useCallback(async () => {
+    if (!lutName.trim() || !lutData.trim()) {
+      alert('Please enter both name and data for the LUT');
+      return;
+    }
+
+    try {
+      const response = await fetch('http://localhost:5000/api/luts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: lutName.trim(),
+          type: 'MANUAL',
+          data: lutData
+        })
+      });
+
+      if (response.ok) {
+        alert('LUT submitted successfully');
+        setLutName('');
+        setLutData('');
+        setRefreshTrigger(prev => prev + 1);
+      } else {
+        throw new Error('Failed to submit LUT');
+      }
+    } catch (error) {
+      console.error('Error submitting LUT:', error);
+      alert('Error submitting LUT');
+    }
+  }, [lutName, lutData]);
 
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-8">Data Ingestion</h1>
 
-      <Tabs defaultValue="csv" className="mb-8">
+      <Tabs 
+        defaultValue="csv" 
+        className="mb-8"
+        onValueChange={(value) => setActiveTab(value as 'csv' | 'lut')}
+      >
         <div className="border-b border-border">
           <TabsList className="h-10 w-full bg-transparent justify-start rounded-none">
             <TabsTrigger 
@@ -236,13 +262,18 @@ export default function IngestionPage() {
             <CardHeader>
               <CardTitle>LUT Input</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="mb-4">
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
                 <Label htmlFor="lut-csv-file">Upload LUT CSV File</Label>
-                <FileInput id="lut-csv-file" accept=".csv" onChange={(e) => handleFileUpload(e, true)} />
+                <FileInput 
+                  id="lut-csv-file" 
+                  accept=".csv" 
+                  onChange={(e) => handleFileUpload(e, true)} 
+                  className="w-full"
+                />
               </div>
-              <form onSubmit={handleLUTSubmit}>
-                <div className="mb-4">
+              <div className="space-y-4">
+                <div className="space-y-2">
                   <Label htmlFor="lut-name">LUT Name</Label>
                   <Input
                     id="lut-name"
@@ -251,52 +282,32 @@ export default function IngestionPage() {
                     onChange={(e) => setLutName(e.target.value)}
                   />
                 </div>
-                <div className="mb-4">
+                <div className="space-y-2">
                   <Label htmlFor="lut-data">LUT Data (one entry per line)</Label>
                   <textarea
                     id="lut-data"
-                    className="w-full h-32 p-2 border rounded"
-                    placeholder="Enter LUT data"
+                    className="w-full h-32 p-2 rounded-md border bg-background text-foreground min-h-[80px]"
+                    placeholder="Enter LUT data (comma-separated values)"
                     value={lutData}
                     onChange={(e) => setLutData(e.target.value)}
-                  ></textarea>
+                  />
                 </div>
-                <Button type="submit">Submit LUT</Button>
-              </form>
-              {lutCsvData.length > 0 && (
-                <div className="mt-4">
-                  <h3 className="text-lg font-semibold mb-2">Uploaded LUT CSV Preview</h3>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        {lutCsvData[0].map((header, index) => (
-                          <TableHead key={index}>{header}</TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {lutCsvData.slice(1, 6).map((row, rowIndex) => (
-                        <TableRow key={rowIndex}>
-                          {row.map((cell, cellIndex) => (
-                            <TableCell key={cellIndex}>{cell}</TableCell>
-                          ))}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  {lutCsvData.length > 6 && (
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Showing first 5 rows of {lutCsvData.length - 1} total rows
-                    </p>
-                  )}
-                </div>
-              )}
+                <Button 
+                  onClick={handleLUTSubmit}
+                  disabled={!lutName.trim() || !lutData.trim()}
+                >
+                  Submit LUT
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      <IngestionTable refreshTrigger={refreshTrigger} />
+      <IngestionTable 
+        refreshTrigger={refreshTrigger} 
+        activeTab={activeTab}
+      />
     </div>
   )
 }

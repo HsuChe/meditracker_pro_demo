@@ -12,21 +12,15 @@ import { Search } from "lucide-react"
 import { addDays } from "date-fns"
 
 interface IngestedData {
-  ingested_data_id: number;
+  ingested_data_id?: number;
+  lut_id?: number;
   name: string;
   type: string;
   ingestion_date: string;
-  mapping: {
-    csvColumn: string;
-    dbColumn: string;
-  }[];
-  activity_status: 'active' | 'deleted';
-  processing_status: 'processing' | 'completed' | 'failed';
   record_count: number;
   file_size_bytes: number;
-  ingestion_duration_ms: number;
-  current_record_count: number;
-  total_size_bytes: number;
+  activity_status: 'active' | 'deleted';
+  processing_status: 'processing' | 'completed' | 'failed';
 }
 
 interface PaginationState {
@@ -45,9 +39,10 @@ interface SearchFilters {
 
 interface IngestionTableProps {
   refreshTrigger?: number;
+  activeTab: 'csv' | 'lut';
 }
 
-export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
+export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTableProps) {
   const [ingestedData, setIngestedData] = useState<IngestedData[]>([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({
@@ -67,7 +62,6 @@ export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
   const fetchIngestedData = async () => {
     setLoading(true);
     try {
-      // Build query params
       const params = new URLSearchParams({
         page: pagination.currentPage.toString(),
         pageSize: pagination.pageSize.toString()
@@ -83,30 +77,26 @@ export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
         params.append('toDate', searchFilters.dateRange.to.toISOString());
       }
 
-      const response = await fetch(
-        `http://localhost:5000/api/ingested-data?${params.toString()}`
-      );
-      
+      const endpoint = activeTab === 'csv' 
+        ? `http://localhost:5000/api/ingested-data?${params.toString()}`
+        : `http://localhost:5000/api/luts?${params.toString()}`;
+
+      const response = await fetch(endpoint);
+
       if (response.ok) {
         const data = await response.json();
-        setIngestedData(data.records);
+        setIngestedData(data.records.map((record: any) => ({
+          ...record,
+          type: activeTab === 'csv' ? 'CSV' : 'LUT'
+        })));
         setPagination(prev => ({
           ...prev,
-          totalPages: data.pagination.totalPages,
-          totalRecords: data.pagination.totalRecords
+          totalRecords: data.pagination.totalRecords,
+          totalPages: data.pagination.totalPages
         }));
-      } else {
-        // Add error details
-        const errorData = await response.text();
-        console.error('Server response not OK:', response.status, errorData);
       }
     } catch (error) {
-      // More detailed error logging
-      console.error('Error fetching ingested data:', {
-        message: (error as Error).message,
-        stack: (error as Error).stack,
-        error
-      });
+      console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
@@ -114,37 +104,49 @@ export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
 
   useEffect(() => {
     fetchIngestedData();
-  }, [pagination.currentPage, pagination.pageSize, refreshTrigger, searchFilters]);
+  }, [pagination.currentPage, pagination.pageSize, refreshTrigger, searchFilters, activeTab]);
 
-  const handleView = useCallback(async (id: number) => {
+  const handleView = useCallback(async (id: number, type: string) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/ingested-data/${id}`);
+      const endpoint = type === 'LUT' 
+        ? `http://localhost:5000/api/luts/${id}`
+        : `http://localhost:5000/api/ingested-data/${id}`;
+      
+      const response = await fetch(endpoint);
       if (response.ok) {
-        const metadata = await response.json();
-        // Show metadata in a modal or new page
-        console.log(metadata);
+        const data = await response.json();
+        // Show metadata and entries in a modal
+        console.log(data);
+        // TODO: Implement modal to show details
       }
     } catch (error) {
-      console.error('Error fetching metadata:', error);
+      console.error('Error fetching details:', error);
     }
   }, []);
 
-  const handleDelete = async (id: number) => {
-    if (confirm('Are you sure you want to delete this ingestion and its associated claims?')) {
+  const handleDelete = async (id: number, type: string) => {
+    const message = type === 'LUT' 
+      ? 'Are you sure you want to delete this LUT and all its entries?'
+      : 'Are you sure you want to delete this ingestion and its associated claims?';
+
+    if (confirm(message)) {
       try {
-        const response = await fetch(`http://localhost:5000/api/ingested-data/${id}`, {
+        const endpoint = type === 'LUT'
+          ? `http://localhost:5000/api/luts/${id}`
+          : `http://localhost:5000/api/ingested-data/${id}`;
+
+        const response = await fetch(endpoint, {
           method: 'DELETE'
         });
         
         if (response.ok) {
-          // Refresh the table data
           fetchIngestedData();
         } else {
-          throw new Error('Failed to delete ingestion');
+          throw new Error(`Failed to delete ${type.toLowerCase()}`);
         }
       } catch (error) {
-        console.error('Error deleting ingestion:', error);
-        alert('Error deleting ingestion');
+        console.error(`Error deleting ${type.toLowerCase()}:`, error);
+        alert(`Error deleting ${type.toLowerCase()}`);
       }
     }
   };
@@ -243,7 +245,7 @@ export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
             </TableHeader>
             <TableBody>
               {ingestedData.map((data) => (
-                <TableRow key={data.ingested_data_id}>
+                <TableRow key={data.ingested_data_id || data.lut_id}>
                   <TableCell>{data.name}</TableCell>
                   <TableCell>{data.type}</TableCell>
                   <TableCell>
@@ -266,14 +268,14 @@ export function IngestionTable({ refreshTrigger = 0 }: IngestionTableProps) {
                       <Button 
                         variant="outline" 
                         size="sm"
-                        onClick={() => handleView(data.ingested_data_id)}
+                        onClick={() => handleView(data.ingested_data_id || data.lut_id!, data.type)}
                       >
                         Details
                       </Button>
                       <Button
                         variant="destructive"
                         size="sm"
-                        onClick={() => handleDelete(data.ingested_data_id)}
+                        onClick={() => handleDelete(data.ingested_data_id || data.lut_id!, data.type)}
                         disabled={data.processing_status === 'processing'}
                       >
                         Delete
