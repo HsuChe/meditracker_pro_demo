@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { DatePickerWithRange } from "@/components/ui/date-range-picker"
 import { Search, ChevronDown, ChevronRight } from "lucide-react"
 import { addDays } from "date-fns"
+import React from "react"
 
 interface IngestedData {
   ingested_data_id: number;
@@ -284,7 +285,7 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
             </TableHeader>
             <TableBody>
               {ingestedData.map((group) => (
-                <>
+                <React.Fragment key={`group-${group.name}`}>
                   <TableRow 
                     key={group.name}
                     className="cursor-pointer hover:bg-muted/50"
@@ -324,7 +325,10 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
                     </TableCell>
                   </TableRow>
                   {expandedGroups.has(group.name) && group.batches.map((batch) => (
-                    <TableRow key={batch.ingested_data_id} className="bg-muted/30">
+                    <TableRow 
+                      key={`batch-${batch.ingested_data_id}`} 
+                      className="bg-muted/30"
+                    >
                       <TableCell></TableCell>
                       <TableCell className="pl-8">
                         Batch {batch.batch_number} of {batch.total_batches}
@@ -361,7 +365,7 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
                       </TableCell>
                     </TableRow>
                   ))}
-                </>
+                </React.Fragment>
               ))}
             </TableBody>
           </Table>
