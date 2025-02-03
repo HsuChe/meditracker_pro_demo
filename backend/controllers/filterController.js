@@ -3,13 +3,11 @@ const pool = require('../config/db.config');
 const { getAllClaims } = require('../routes/claimRoutes');
 const CLAIMS_TABLE = process.env.CLAIMS_TABLE || 'claims_merged';
 
+// Update VALID_OPERATORS to match frontend operators
 const VALID_OPERATORS = new Set([
-    'equals', 'notEquals', 'contains', 'doesNotContain', 
-    'startsWith', 'endsWith', 'matchesRegex', 'isIn', 
-    'isNotIn', 'isNull', 'isNotNull', 'greaterThan',
-    'lessThan', 'greaterThanEquals', 'lessThanEquals',
-    'between', 'percentageOfTotal', 'before', 'after',
-    'daysSince'
+    'equals', 'contains', 'starts_with', 'ends_with', 
+    'is_null', 'is_not_null', 'greater_than', 'less_than',
+    'between', 'before', 'after'
 ]);
 
 // Get all saved filters with optional pagination and search
@@ -171,12 +169,21 @@ const executeFilter = async (req, res) => {
         const offset = (page - 1) * limit;
         const startTime = Date.now();
 
+        // Validate conditions
+        if (conditions) {
+            conditions.forEach(condition => {
+                if (!VALID_OPERATORS.has(condition.operator)) {
+                    throw new Error(`Invalid operator: ${condition.operator}`);
+                }
+            });
+        }
+
         // Build base query from conditions or use default
         const { query: baseQuery, params } = conditions?.length > 0 
             ? buildFilterQuery(conditions)
             : { query: `SELECT * FROM ${CLAIMS_TABLE}`, params: [] };
 
-        // Get metadata for the filtered (or all) records
+        // Get metadata for the filtered records
         const statsQuery = `
             WITH filtered_claims AS (${baseQuery})
             SELECT 
@@ -207,13 +214,13 @@ const executeFilter = async (req, res) => {
                 totalAmount: parseFloat(stats.total_amount || 0),
                 averageAmount: parseFloat(stats.average_amount || 0),
                 uniquePatients: parseInt(stats.unique_patients),
-                currentPage: parseInt(page),
-                totalPages: Math.ceil(parseInt(stats.total_records) / limit),
-                pageSize: parseInt(limit),
                 dateRange: {
                     start: stats.start_date,
                     end: stats.end_date
-                }
+                },
+                currentPage: parseInt(page),
+                totalPages: Math.ceil(parseInt(stats.total_records) / limit),
+                pageSize: parseInt(limit)
             },
             execution_time_ms: Date.now() - startTime
         });
@@ -239,77 +246,57 @@ const buildFilterQuery = (conditions) => {
         const { column, operator, value, secondValue } = condition;
         
         // String operators
-        if (operator === 'equals') {
-            params.push(value);
-            return `${column} = $${paramCount++}`;
-        } else if (operator === 'notEquals') {
-            params.push(value);
-            return `${column} != $${paramCount++}`;
-        } else if (operator === 'contains') {
-            params.push(`%${value}%`);
-            return `${column} ILIKE $${paramCount++}`;
-        } else if (operator === 'doesNotContain') {
-            params.push(`%${value}%`);
-            return `${column} NOT ILIKE $${paramCount++}`;
-        } else if (operator === 'startsWith') {
-            params.push(`${value}%`);
-            return `${column} ILIKE $${paramCount++}`;
-        } else if (operator === 'endsWith') {
-            params.push(`%${value}`);
-            return `${column} ILIKE $${paramCount++}`;
-        } else if (operator === 'matchesRegex') {
-            params.push(value);
-            return `${column} ~ $${paramCount++}`;
-        } else if (operator === 'isIn') {
-            const values = Array.isArray(value) ? value : [value];
-            params.push(values);
-            return `${column} = ANY($${paramCount++})`; 
-        } else if (operator === 'isNotIn') {
-            const values = Array.isArray(value) ? value : [value];
-            params.push(values);
-            return `${column} != ALL($${paramCount++})`;
-        } else if (operator === 'isNull') {
-            return `${column} IS NULL`;
-        } else if (operator === 'isNotNull') {
-            return `${column} IS NOT NULL`;
+        switch(operator) {
+            case 'equals':
+                params.push(value);
+                return `${column} = $${paramCount++}`;
+                
+            case 'contains':
+                params.push(`%${value}%`);
+                return `${column} ILIKE $${paramCount++}`;
+                
+            case 'starts_with':
+                params.push(`${value}%`);
+                return `${column} ILIKE $${paramCount++}`;
+                
+            case 'ends_with':
+                params.push(`%${value}`);
+                return `${column} ILIKE $${paramCount++}`;
+                
+            case 'is_null':
+                return `${column} IS NULL`;
+                
+            case 'is_not_null':
+                return `${column} IS NOT NULL`;
+                
+            // Numeric operators
+            case 'greater_than':
+                params.push(value);
+                return `${column} > $${paramCount++}`;
+                
+            case 'less_than':
+                params.push(value);
+                return `${column} < $${paramCount++}`;
+                
+            case 'between':
+                if (!secondValue) {
+                    throw new Error('Second value required for between operator');
+                }
+                params.push(value, secondValue);
+                return `${column} BETWEEN $${paramCount++} AND $${paramCount++}`;
+                
+            // Date operators
+            case 'before':
+                params.push(value);
+                return `${column}::date < $${paramCount++}::date`;
+                
+            case 'after':
+                params.push(value);
+                return `${column}::date > $${paramCount++}::date`;
+                
+            default:
+                throw new Error(`Unsupported operator: ${operator}`);
         }
-        
-        // Numeric operators
-        else if (operator === 'greaterThan') {
-            params.push(value);
-            return `${column} > $${paramCount++}`;
-        } else if (operator === 'lessThan') {
-            params.push(value);
-            return `${column} < $${paramCount++}`;
-        } else if (operator === 'greaterThanEquals') {
-            params.push(value);
-            return `${column} >= $${paramCount++}`;
-        } else if (operator === 'lessThanEquals') {
-            params.push(value);
-            return `${column} <= $${paramCount++}`;
-        } else if (operator === 'between') {
-            params.push(value, secondValue);
-            return `${column} BETWEEN $${paramCount++} AND $${paramCount++}`;
-        } else if (operator === 'percentageOfTotal') {
-            params.push(value);
-            return `(${column} * 100.0 / (SELECT SUM(${column}) FROM ${CLAIMS_TABLE})) > $${paramCount++}`;
-        }
-        
-        // Date operators
-        else if (operator === 'before') {
-            params.push(value);
-            return `${column}::date < $${paramCount++}::date`;
-        } else if (operator === 'after') {
-            params.push(value);
-            return `${column}::date > $${paramCount++}::date`;
-        } else if (operator === 'daysSince') {
-            params.push(value);
-            return `DATE_PART('day', NOW() - ${column}::date) > $${paramCount++}`;
-        }
-        
-        // Default equals operator
-        params.push(value);
-        return `${column} = $${paramCount++}`;
     });
 
     // If no conditions, return all records
@@ -459,11 +446,77 @@ const getClaims = async (req, res) => {
         client.release();
     }
 };
-// Update the exports to match only the functions we have defined
+
+// Update this function with the simpler query and parameterized values
+const getClaimsSchema = async () => {
+    const query = `
+        SELECT 
+            column_name, 
+            data_type 
+        FROM 
+            information_schema.columns 
+        WHERE 
+            table_name = $1
+        ORDER BY ordinal_position;
+    `;
+    
+    try {
+        const result = await pool.query(query, [CLAIMS_TABLE]);
+        return result.rows;
+    } catch (error) {
+        console.error('Error fetching claims schema:', error);
+        throw error;
+    }
+};
+
+// Helper function to map Postgres types to frontend types
+const mapPostgresTypeToFrontend = (postgresType) => {
+    const typeMapping = {
+        'character varying': 'string',
+        'varchar': 'string',
+        'text': 'string',
+        'integer': 'number',
+        'numeric': 'number',
+        'decimal': 'number',
+        'double precision': 'number',
+        'boolean': 'boolean',
+        'date': 'date',
+        'timestamp': 'date',
+        'timestamp with time zone': 'date',
+        'timestamp without time zone': 'date'
+    };
+
+    return typeMapping[postgresType.toLowerCase()] || 'string';
+};
+
+// Add this new handler function
+const getClaimsDataTypes = async (req, res) => {
+    try {
+        const schema = await getClaimsSchema();
+        res.json({
+            success: true,
+            data: schema.map(col => ({
+                column: col.column_name,
+                type: mapPostgresTypeToFrontend(col.data_type)
+            }))
+        });
+    } catch (error) {
+        console.error('Error fetching claims data types:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Internal server error', 
+            details: error.message 
+        });
+    }
+};
+
+// Update the exports
 module.exports = {
     getSavedFilters,
     saveFilter,
     executeFilter,
     updateFilterClaimsIds,
     getClaims,
+    getClaimsSchema,
+    getClaimsDataTypes,  // Add this new export
 };

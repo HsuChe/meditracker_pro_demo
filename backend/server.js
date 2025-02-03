@@ -10,7 +10,7 @@ const ingestedDataRoutes = require('./routes/ingestedDataRoutes');
 const mappingRoutes = require('./routes/mappingRoutes');
 const dbColumnsRoutes = require('./routes/dbColumnsRoutes');
 const lutController = require('./controllers/lutController');
-const { getClaimsStatistics } = require('./controllers/filterController');
+const filterController = require('./controllers/filterController');
 
 const app = express();
 

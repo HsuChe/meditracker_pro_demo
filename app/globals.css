@@ -170,3 +170,171 @@
   background-image: linear-gradient(135deg, hsl(220, 50%, 30%) 0%, hsl(220, 50%, 20%) 100%);
 }
 
+/* Reset and update positioning styles */
+.react-datepicker-wrapper,
+.react-datepicker__input-container,
+.react-datepicker__input-container input {
+  width: 100% !important;
+  display: block !important;
+}
+
+.react-datepicker__input-container input {
+  height: 2.25rem !important;
+  padding: 0.5rem 0.75rem !important;
+  border-radius: 0.375rem !important;
+  border: 1px solid hsl(var(--border)) !important;
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Calendar positioning */
+.datepicker-popper-container {
+  position: fixed !important;
+  z-index: 9999 !important;
+  inset: auto !important;
+  margin-top: 4px !important;
+  width: 100% !important;
+  pointer-events: none !important;
+}
+
+.react-datepicker-popper {
+  position: absolute !important;
+  left: 0 !important;
+  transform: none !important;
+  margin-top: 8px !important;
+}
+
+/* Calendar styles */
+.react-datepicker {
+  width: min-content !important;
+  min-width: 380px !important;
+  font-family: inherit !important;
+  font-size: 0.875rem !important;
+  background-color: hsl(var(--background)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: var(--radius) !important;
+  padding: 0.5rem !important;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+  position: relative !important;
+  pointer-events: auto !important;
+}
+
+/* Keep all other calendar styles the same */
+.react-datepicker__header {
+  background-color: hsl(var(--background)) !important;
+  border-bottom: 1px solid hsl(var(--border)) !important;
+  padding: 0.75rem 0.5rem !important;
+}
+
+.react-datepicker__header div:first-child {
+  margin-bottom: 0.75rem !important;
+  padding: 0.5rem !important;
+}
+
+.react-datepicker__month {
+  margin: 0.5rem !important;
+}
+
+.react-datepicker__day-name {
+  font-size: 0.875rem !important;
+  color: hsl(var(--foreground)) !important;
+  width: 2.5rem !important;
+  line-height: 2rem !important;
+  margin: 0.2rem !important;
+}
+
+.react-datepicker__day, 
+.react-datepicker__time-name {
+  color: hsl(var(--foreground)) !important;
+  width: 2.5rem !important;
+  line-height: 2.5rem !important;
+  margin: 0.2rem !important;
+}
+
+.react-datepicker__day:hover {
+  background-color: hsl(var(--accent)) !important;
+}
+
+.react-datepicker__day--selected,
+.react-datepicker__day--keyboard-selected {
+  background-color: hsl(var(--primary)) !important;
+  color: white !important;
+}
+
+.react-datepicker__current-month {
+  color: hsl(var(--foreground)) !important;
+  font-size: 1rem !important;
+  padding: 0.5rem 0 !important;
+}
+
+.react-datepicker__navigation {
+  top: 0.75rem !important;
+}
+
+/* Update the month and year select styles */
+.react-datepicker__month-select,
+.react-datepicker__year-select {
+  background-color: transparent !important;
+  color: hsl(var(--foreground)) !important;
+  border: none !important;
+  font-size: 1.1rem !important;
+  padding: 0.25rem !important;
+  width: 6.5rem !important;
+  height: 2.6rem !important;
+  cursor: pointer !important;
+  text-align: center !important;
+  font-weight: 400 !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+}
+
+/* Style the options in the dropdowns */
+.react-datepicker__month-select option,
+.react-datepicker__year-select option {
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  font-size: 1.1rem !important;
+  padding: 0.5rem !important;
+}
+
+/* Update the header container to accommodate larger selects */
+.react-datepicker__header div:first-child {
+  margin-bottom: 0.75rem !important;
+  padding: 0.5rem !important;
+}
+
+/* Update the calendar container to fit larger header */
+.react-datepicker {
+  min-width: 320px !important;
+}
+
+/* Make the gap between selects larger */
+.react-datepicker__header div:first-child .flex.gap-2 {
+  gap: 1rem !important;
+}
+
+.react-datepicker__day--outside-month {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.react-datepicker__triangle {
+  display: none;
+}
+
+/* Add a wrapper div for better blending */
+.react-datepicker__header div:first-child {
+  background-color: hsl(var(--background)) !important;
+  mix-blend-mode: normal !important;
+}
+
+/* Add these styles for the Select component's popover */
+.react-datepicker .select-content {
+  z-index: 10000 !important; /* Higher than calendar */
+  position: relative !important;
+}
+
+/* Update SelectContent z-index */
+[data-radix-popper-content-wrapper] {
+  z-index: 10000 !important; /* Higher than calendar */
+}

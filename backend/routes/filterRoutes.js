@@ -7,6 +7,7 @@ const {
     executeFilter,
     updateFilterClaimsIds,
     getClaims,
+    getClaimsDataTypes
 } = require('../controllers/filterController');
 
 // Filter routes
@@ -17,5 +18,6 @@ router.put('/:filter_id/update-claims', updateFilterClaimsIds);
 
 // Claims routes
 router.get('/claims', getClaims);
+router.get('/claimsDtype', getClaimsDataTypes);
 
 module.exports = router;

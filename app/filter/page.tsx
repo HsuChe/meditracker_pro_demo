@@ -17,18 +17,22 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { FilterCondition } from "@/components/filter-condition"
-import { X, CornerDownRight } from "lucide-react"
+import { X, CornerDownRight, List as ListIcon, ChevronLeft, ChevronRight } from "lucide-react"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { Check } from "lucide-react"
+import DatePicker from "react-datepicker"
+import "react-datepicker/dist/react-datepicker.css"
 
-interface FilterCondition {
+// Add export to the FilterCondition interface
+export interface FilterCondition {
   id: string;
   column: string;
   operator: string;
-  value: string | null;
+  value: string | string[] | null;
   secondValue?: string;
+  isListValue?: boolean;
 }
 
 interface FilterKey {
@@ -67,6 +71,15 @@ interface ClaimsResponse {
   };
 }
 
+// Add this interface for the API response
+interface ColumnTypeResponse {
+  success: boolean;
+  data: Array<{
+    column: string;
+    type: DataType;
+  }>;
+}
+
 interface FilterConditionProps {
   id: string;
   condition: FilterCondition;
@@ -75,6 +88,7 @@ interface FilterConditionProps {
   isChild: boolean;
   availableColumns: ColumnInfo[];
   operators?: string[];
+  renderValueInput?: () => React.ReactNode;
 }
 
 // Add these type definitions at the top with other interfaces
@@ -86,7 +100,7 @@ interface ColumnInfo {
   dataType: DataType;
 }
 
-// Add this operator mapping
+// Update OPERATORS_BY_TYPE to match backend expectations
 const OPERATORS_BY_TYPE: Record<DataType, string[]> = {
   string: ['equals', 'contains', 'starts_with', 'ends_with', 'is_null', 'is_not_null'],
   number: ['equals', 'greater_than', 'less_than', 'between', 'is_null', 'is_not_null'],
@@ -101,6 +115,110 @@ const formatColumnName = (name: string): string => {
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
 };
+
+// Add this interface to match the backend's expected condition format
+interface BackendFilterCondition {
+  column: string;
+  operator: string;
+  value: string | number | null;
+  secondValue?: string | number;
+}
+
+// Add this helper function at the top of the file
+const parseDelimitedInput = (input: string): string[] => {
+  // Try different delimiters
+  const delimiters = [',', ';', '|', '\t'];
+  for (const delimiter of delimiters) {
+    if (input.includes(delimiter)) {
+      return input
+        .split(delimiter)
+        .map(item => item.trim())
+        .filter(item => item.length > 0);
+    }
+  }
+  // If no delimiter found, return as single item
+  return [input.trim()];
+};
+
+// Update the filterClientData function
+const filterClientData = (data: ClaimData[], conditions: BackendFilterCondition[]): ClaimData[] => {
+  return data.filter(record => {
+    return conditions.every(condition => {
+      const value = record[condition.column];
+      const filterValue = condition.value;
+
+      switch (condition.operator) {
+        case 'equals':
+          // Make string equals case-insensitive
+          return typeof value === 'string' && typeof filterValue === 'string'
+            ? value.toLowerCase() === filterValue.toLowerCase()
+            : value === filterValue;
+        case 'contains':
+          // Contains is already case-insensitive
+          return String(value).toLowerCase().includes(String(filterValue).toLowerCase());
+        case 'starts_with':
+          // Starts with is already case-insensitive
+          return String(value).toLowerCase().startsWith(String(filterValue).toLowerCase());
+        case 'ends_with':
+          // Ends with is already case-insensitive
+          return String(value).toLowerCase().endsWith(String(filterValue).toLowerCase());
+        case 'is_null':
+          return value === null || value === undefined;
+        case 'is_not_null':
+          return value !== null && value !== undefined;
+        case 'greater_than':
+          return Number(value) > Number(filterValue);
+        case 'less_than':
+          return Number(value) < Number(filterValue);
+        case 'between':
+          return Number(value) >= Number(filterValue) && 
+                 Number(value) <= Number(condition.secondValue);
+        case 'before':
+          return new Date(value) < new Date(filterValue);
+        case 'after':
+          return new Date(value) > new Date(filterValue);
+        default:
+          return true;
+      }
+    });
+  });
+};
+
+// Add helper function to calculate statistics
+const calculateStatistics = (filteredData: ClaimData[]) => {
+  return {
+    uniqueClaimIds: new Set(filteredData.map(record => record.claim_id)).size,
+    dateRange: {
+      min: filteredData.reduce((min, record) => {
+        const date = new Date(record.admission_date);
+        return !min || date < min ? date : min;
+      }, null as Date | null)?.toISOString(),
+      max: filteredData.reduce((max, record) => {
+        const date = new Date(record.admission_date);
+        return !max || date > max ? date : max;
+      }, null as Date | null)?.toISOString()
+    },
+    totalAllowedAmount: filteredData.reduce((sum, record) => 
+      sum + (Number(record.allowed_amount) || 0), 0),
+    totalRecords: filteredData.length
+  };
+};
+
+// Add months array
+const months = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
 
 export default function FilterPage() {
   // Basic state
@@ -138,6 +256,10 @@ export default function FilterPage() {
     totalRecords: number;
   } | null>(null)
 
+  // Add state to manage dropdowns
+  const [isYearOpen, setIsYearOpen] = useState(false);
+  const [isMonthOpen, setIsMonthOpen] = useState(false);
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -159,61 +281,69 @@ export default function FilterPage() {
 
     const initializeData = async () => {
       try {
-        setIsLoading(true)
-        console.log("Fetching data from API..."); // Debug log
-        const response = await fetch(
-          `http://localhost:5000/api/filters/claims?page=${page}&limit=${pageSize}`
-        )
+        setIsLoading(true);
+        
+        // Fetch both claims data and column types in parallel
+        const [claimsResponse, columnTypesResponse] = await Promise.all([
+          fetch(`http://localhost:5000/api/filters/claims?page=${page}&limit=${pageSize}`),
+          fetch('http://localhost:5000/api/filters/claimsDtype')
+        ]);
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch claims data')
+        if (!claimsResponse.ok) {
+          throw new Error('Failed to fetch claims data');
+        }
+        if (!columnTypesResponse.ok) {
+          throw new Error('Failed to fetch column types');
         }
 
-        const data: ClaimsResponse = await response.json()
-        
-        if (data.claims && data.claims.length > 0 && isMounted) {
-          setClaims(data.claims)
-          
-          // Create column info with data types and formatted names
-          const columnInfo: ColumnInfo[] = Object.entries(data.claims[0])
-            .map(([name, value]) => ({
-              name, // Keep original name for data access
-              displayName: formatColumnName(name), // Add formatted name for display
-              dataType: inferDataType(value)
-            }))
-            .sort((a, b) => a.displayName.localeCompare(b.displayName))
-          
-          console.log("Setting columns:", columnInfo); // More specific log
-          setColumns(columnInfo)
-          setTotalRecords(data.pagination.total)
-          setStatistics({
-            uniqueClaimIds: data.statistics.uniqueClaimIds,
-            dateRange: {
-              min: data.statistics.dateRange.min,
-              max: data.statistics.dateRange.max,
-            },
-            totalAllowedAmount: data.statistics.totalAllowedAmount,
-            totalRecords: data.statistics.totalRecords,
-          })
+        const claimsData: ClaimsResponse = await claimsResponse.json();
+        const columnTypes: ColumnTypeResponse = await columnTypesResponse.json();
 
-          setIsInitialized(true)
+        console.log('Column Types:', columnTypes); // Add this console.log
+
+        if (claimsData.claims && claimsData.claims.length > 0 && isMounted) {
+          setClaims(claimsData.claims);
+
+          // Use the column types from the API instead of inferring
+          const columnInfo: ColumnInfo[] = columnTypes.data
+            .map(({ column, type }) => ({
+              name: column,
+              displayName: formatColumnName(column),
+              dataType: type
+            }))
+            .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+          setColumns(columnInfo);
+          setTotalRecords(claimsData.pagination.total);
+          setStatistics({
+            uniqueClaimIds: claimsData.statistics.uniqueClaimIds,
+            dateRange: {
+              min: claimsData.statistics.dateRange.min,
+              max: claimsData.statistics.dateRange.max,
+            },
+            totalAllowedAmount: claimsData.statistics.totalAllowedAmount,
+            totalRecords: claimsData.statistics.totalRecords,
+          });
+
+          setIsInitialized(true);
         }
       } catch (err) {
         if (isMounted) {
-          setError(err instanceof Error ? err.message : 'An error occurred')
+          console.error('Error during initialization:', err); // Add this console.log
+          setError(err instanceof Error ? err.message : 'An error occurred');
         }
       } finally {
         if (isMounted) {
-          setIsLoading(false)
+          setIsLoading(false);
         }
       }
-    }
+    };
 
-    initializeData()
+    initializeData();
 
     return () => {
       isMounted = false;
-    }
+    };
   }, []) // Empty dependency array for initial load only
 
   // Only render content after initialization
@@ -252,13 +382,23 @@ export default function FilterPage() {
     setFilterKeys((keys) => {
       const updateKey = (key: FilterKey): FilterKey => {
         if (key.id === keyId) {
-          return { ...key, conditions: key.conditions.filter((id) => id !== conditionId) }
+          // Don't remove if it's the last condition
+          if (key.conditions.length <= 1) {
+            return key;
+          }
+          return {
+            ...key,
+            conditions: key.conditions.filter((condition) => condition.id !== conditionId)
+          };
         }
-        return { ...key, children: key.children.map(updateKey) }
-      }
-      return keys.map(updateKey)
-    })
-  }
+        return {
+          ...key,
+          children: key.children.map(updateKey)
+        };
+      };
+      return keys.map(updateKey);
+    });
+  };
 
   const addKey = (parentId: string) => {
     setFilterKeys((keys) => {
@@ -321,18 +461,32 @@ export default function FilterPage() {
         if (key.id === keyId) {
           return {
             ...key,
-            conditions: key.conditions.map((condition) =>
-              condition.id === conditionId
-                ? { ...condition, ...updates }
-                : condition
-            )
-          }
+            conditions: key.conditions.map((condition) => {
+              if (condition.id === conditionId) {
+                const updatedCondition = { ...condition, ...updates };
+                
+                // Get column info for type checking
+                const columnInfo = columns.find(col => col.name === updatedCondition.column);
+                if (columnInfo) {
+                  // Convert value based on column type
+                  if (columnInfo.dataType === 'number' && typeof updatedCondition.value === 'string') {
+                    updatedCondition.value = parseFloat(updatedCondition.value) || null;
+                  } else if (columnInfo.dataType === 'boolean' && typeof updatedCondition.value === 'string') {
+                    updatedCondition.value = updatedCondition.value.toLowerCase() === 'true';
+                  }
+                }
+                
+                return updatedCondition;
+              }
+              return condition;
+            })
+          };
         }
-        return { ...key, children: key.children.map(updateKey) }
-      }
-      return keys.map(updateKey)
-    })
-  }
+        return { ...key, children: key.children.map(updateKey) };
+      };
+      return keys.map(updateKey);
+    });
+  };
 
   const renderFilterKey = (key: FilterKey, level = 0) => (
     <div key={key.id} className={`ml-${level * 4}`}>
@@ -368,8 +522,339 @@ export default function FilterPage() {
   )
 
   const renderFilterCondition = (condition: FilterCondition, keyId: string) => {
-    const selectedColumn = columns.find(col => col.name === condition.column)
-    const operators = selectedColumn ? OPERATORS_BY_TYPE[selectedColumn.dataType] : []
+    const selectedColumn = columns.find(col => col.name === condition.column);
+    const operators = selectedColumn ? OPERATORS_BY_TYPE[selectedColumn.dataType] : [];
+
+    const renderValueInput = () => {
+      if (!selectedColumn) return null;
+
+      const isDateType = selectedColumn.dataType === 'date';
+      const isStringType = selectedColumn.dataType === 'string';
+      const isBetweenOperator = condition.operator === 'between';
+      const currentValues = Array.isArray(condition.value) ? condition.value : [];
+
+      if (isStringType) {
+        return (
+          <div className="flex flex-col gap-2 w-full">
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                placeholder="Enter value or paste delimited values (comma, tab, semicolon, bar)"
+                className="flex-1"
+                value={condition.isListValue ? '' : (condition.value || '')}
+                onChange={(e) => {
+                  if (!condition.isListValue) {
+                    handleConditionChange(keyId, condition.id, { value: e.target.value });
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.currentTarget.value) {
+                    e.preventDefault();
+                    const inputValue = e.currentTarget.value;
+                    const values = parseDelimitedInput(inputValue);
+                    
+                    // If multiple values detected or already in list mode
+                    if (values.length > 1 || condition.isListValue) {
+                      const currentValues = Array.isArray(condition.value) ? condition.value : [];
+                      const updatedValues = [...currentValues, ...values];
+                      handleConditionChange(keyId, condition.id, { 
+                        isListValue: true,
+                        value: updatedValues 
+                      });
+                    } else {
+                      // Single value, keep in normal mode
+                      handleConditionChange(keyId, condition.id, { 
+                        value: values[0] 
+                      });
+                    }
+                    e.currentTarget.value = '';
+                  }
+                }}
+                onPaste={(e) => {
+                  // Don't prevent default to allow the paste to show in input
+                  const pastedText = e.clipboardData.getData('text');
+                  
+                  // If not in list mode, show the pasted text in the input
+                  if (!condition.isListValue) {
+                    handleConditionChange(keyId, condition.id, { 
+                      value: pastedText 
+                    });
+                  } else {
+                    // If already in list mode, append the values
+                    const values = parseDelimitedInput(pastedText);
+                    const currentValues = Array.isArray(condition.value) ? condition.value : [];
+                    const updatedValues = [...currentValues, ...values];
+                    handleConditionChange(keyId, condition.id, { 
+                      isListValue: true,
+                      value: updatedValues 
+                    });
+                  }
+                }}
+              />
+              {condition.isListValue && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    handleConditionChange(keyId, condition.id, { 
+                      isListValue: false,
+                      value: null 
+                    });
+                  }}
+                  className="shrink-0"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            {condition.isListValue && Array.isArray(condition.value) && condition.value.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {condition.value.map((val, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-1 bg-secondary px-2 py-1 rounded-md"
+                  >
+                    <span className="text-sm">{val}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-4 w-4"
+                      onClick={() => {
+                        const newValues = condition.value.filter((_, i) => i !== index);
+                        handleConditionChange(keyId, condition.id, { 
+                          value: newValues.length > 0 ? newValues : null,
+                          isListValue: newValues.length > 0
+                        });
+                      }}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      if (isDateType) {
+        return (
+          <div className="flex gap-2 items-center w-full">
+            <div className="flex-1">
+              <DatePicker
+                selected={condition.value ? new Date(condition.value) : null}
+                onChange={(date: Date) => {
+                  handleConditionChange(keyId, condition.id, { value: date?.toISOString() });
+                }}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors"
+                placeholderText="Select date..."
+                dateFormat="yyyy-MM-dd"
+                showMonthDropdown
+                showYearDropdown
+                dropdownMode="select"
+                yearDropdownItemNumber={20}
+                scrollableYearDropdown
+                popperContainer={({ children }) => (
+                  <div className="datepicker-popper-container">{children}</div>
+                )}
+                renderCustomHeader={({
+                  date,
+                  changeYear,
+                  changeMonth,
+                  decreaseMonth,
+                  increaseMonth,
+                  prevMonthButtonDisabled,
+                  nextMonthButtonDisabled,
+                }) => (
+                  <div className="flex items-center justify-between px-2 py-2">
+                    <button
+                      onClick={decreaseMonth}
+                      disabled={prevMonthButtonDisabled}
+                      type="button"
+                      className="p-1 hover:bg-accent rounded-sm disabled:opacity-50"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <div className="flex gap-2">
+                      <Select
+                        value={date.getFullYear().toString()}
+                        onValueChange={(value) => {
+                          changeYear(Number(value));
+                          setIsYearOpen(false);
+                        }}
+                        open={isYearOpen}
+                        onOpenChange={(open) => {
+                          setIsYearOpen(open);
+                          if (open) setIsMonthOpen(false);
+                        }}
+                      >
+                        <SelectTrigger className="w-[7rem] h-8 text-muted-foreground">
+                          <SelectValue>{date.getFullYear()}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 20 }, (_, i) => date.getFullYear() - 10 + i).map((year) => (
+                            <SelectItem key={year} value={year.toString()}>
+                              {year}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={months[date.getMonth()]}
+                        onValueChange={(value) => {
+                          changeMonth(months.indexOf(value));
+                          setIsMonthOpen(false);
+                        }}
+                        open={isMonthOpen}
+                        onOpenChange={(open) => {
+                          setIsMonthOpen(open);
+                          if (open) setIsYearOpen(false);
+                        }}
+                      >
+                        <SelectTrigger className="w-[8rem] h-8 text-muted-foreground">
+                          <SelectValue>{months[date.getMonth()]}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {months.map((month) => (
+                            <SelectItem key={month} value={month}>
+                              {month}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <button
+                      onClick={increaseMonth}
+                      disabled={nextMonthButtonDisabled}
+                      type="button"
+                      className="p-1 hover:bg-accent rounded-sm disabled:opacity-50"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+              />
+            </div>
+            {isBetweenOperator && (
+              <>
+                <span className="text-sm text-muted-foreground shrink-0">and</span>
+                <div className="flex-1">
+                  <DatePicker
+                    selected={condition.secondValue ? new Date(condition.secondValue) : null}
+                    onChange={(date: Date) => {
+                      handleConditionChange(keyId, condition.id, { secondValue: date?.toISOString() });
+                    }}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors"
+                    placeholderText="Select end date..."
+                    dateFormat="yyyy-MM-dd"
+                    showMonthDropdown
+                    showYearDropdown
+                    dropdownMode="select"
+                    yearDropdownItemNumber={20}
+                    scrollableYearDropdown
+                    popperContainer={({ children }) => (
+                      <div className="datepicker-popper-container">{children}</div>
+                    )}
+                    renderCustomHeader={({
+                      date,
+                      changeYear,
+                      changeMonth,
+                      decreaseMonth,
+                      increaseMonth,
+                      prevMonthButtonDisabled,
+                      nextMonthButtonDisabled,
+                    }) => (
+                      <div className="flex items-center justify-between px-2 py-2">
+                        <button
+                          onClick={decreaseMonth}
+                          disabled={prevMonthButtonDisabled}
+                          type="button"
+                          className="p-1 hover:bg-accent rounded-sm disabled:opacity-50"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <div className="flex gap-2">
+                          <Select
+                            value={date.getFullYear().toString()}
+                            onValueChange={(value) => changeYear(Number(value))}
+                          >
+                            <SelectTrigger className="w-[7rem] h-8 text-muted-foreground">
+                              <SelectValue>{date.getFullYear()}</SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 20 }, (_, i) => date.getFullYear() - 10 + i).map((year) => (
+                                <SelectItem key={year} value={year.toString()}>
+                                  {year}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={months[date.getMonth()]}
+                            onValueChange={(value) => changeMonth(months.indexOf(value))}
+                          >
+                            <SelectTrigger className="w-[8rem] h-8 text-muted-foreground">
+                              <SelectValue>{months[date.getMonth()]}</SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {months.map((month) => (
+                                <SelectItem key={month} value={month}>
+                                  {month}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <button
+                          onClick={increaseMonth}
+                          disabled={nextMonthButtonDisabled}
+                          type="button"
+                          className="p-1 hover:bg-accent rounded-sm disabled:opacity-50"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        );
+      }
+
+      if (isBetweenOperator) {
+        return (
+          <div className="flex gap-2 items-center">
+            <Input
+              type={selectedColumn.dataType === 'number' ? 'number' : 'text'}
+              value={condition.value || ''}
+              onChange={(e) => handleConditionChange(keyId, condition.id, { value: e.target.value })}
+              placeholder="Start value..."
+              className="flex-1"
+            />
+            <span className="text-sm text-muted-foreground">and</span>
+            <Input
+              type={selectedColumn.dataType === 'number' ? 'number' : 'text'}
+              value={condition.secondValue || ''}
+              onChange={(e) => handleConditionChange(keyId, condition.id, { secondValue: e.target.value })}
+              placeholder="End value..."
+              className="flex-1"
+            />
+          </div>
+        );
+      }
+
+      // Default input for other types
+      return (
+        <Input
+          type={selectedColumn.dataType === 'number' ? 'number' : 'text'}
+          value={condition.value || ''}
+          onChange={(e) => handleConditionChange(keyId, condition.id, { value: e.target.value })}
+          placeholder="Enter value..."
+        />
+      );
+    };
 
     return (
       <FilterCondition
@@ -377,24 +862,109 @@ export default function FilterPage() {
         id={condition.id}
         condition={condition}
         onRemove={(id) => removeCondition(keyId, id)}
-        onChange={(updates) => handleConditionChange(keyId, condition.id, updates)}
+        onChange={(updates) => {
+          // If column is being changed, reset operator and value
+          if (updates.column && updates.column !== condition.column) {
+            const newColumn = columns.find(col => col.name === updates.column);
+            if (newColumn) {
+              updates.operator = OPERATORS_BY_TYPE[newColumn.dataType][0];
+              updates.value = null;
+              updates.secondValue = null; // Also reset secondValue
+            }
+          }
+          // If operator is being changed to/from between, reset values
+          if (updates.operator && updates.operator !== condition.operator) {
+            if (updates.operator === 'between' || condition.operator === 'between') {
+              updates.value = null;
+              updates.secondValue = null;
+            }
+          }
+          handleConditionChange(keyId, condition.id, updates);
+        }}
         isChild={false}
         availableColumns={columns}
         operators={operators}
+        renderValueInput={renderValueInput}
       />
-    )
-  }
+    );
+  };
 
-  const applyFilter = () => {
-    const getKeyColumns = (key: FilterKey): string[] => {
-      const keyColumn = key.conditions[0]?.column || '';
-      const childrenKeys = key.children.flatMap(getKeyColumns);
-      return keyColumn ? [keyColumn, ...childrenKeys] : childrenKeys;
+  // Update the applyFilter function
+  const applyFilter = async () => {
+    const getAllConditions = (key: FilterKey): BackendFilterCondition[] => {
+      const conditions = key.conditions.map(condition => {
+        const columnInfo = columns.find(col => col.name === condition.column);
+        let value = condition.value;
+        let secondValue = condition.secondValue;
+
+        // Convert values based on column type
+        if (columnInfo) {
+          switch (columnInfo.dataType) {
+            case 'number':
+              value = typeof value === 'string' ? parseFloat(value) : value;
+              secondValue = typeof secondValue === 'string' ? parseFloat(secondValue) : secondValue;
+              break;
+            case 'date':
+              value = value ? new Date(value).toISOString() : value;
+              secondValue = secondValue ? new Date(secondValue).toISOString() : secondValue;
+              break;
+            case 'string':
+              // If it's a list value, keep it as an array
+              if (condition.isListValue && Array.isArray(value)) {
+                // value remains as array
+              } else {
+                value = value?.toString() || null;
+              }
+              break;
+          }
+        }
+
+        return {
+          column: condition.column,
+          operator: condition.operator,
+          value,
+          secondValue
+        };
+      });
+
+      const childConditions = key.children.flatMap(getAllConditions);
+      return [...conditions, ...childConditions];
     };
 
-    const keyColumns = getKeyColumns(filterKeys[0]);
-    console.log("Applying filter:", { filterName, keyColumns, filterKeys })
-  }
+    try {
+      setIsLoading(true);
+
+      // Filter the existing data
+      const filteredData = filterClientData(claims, getAllConditions(filterKeys[0]));
+      
+      // Calculate pagination
+      const startIndex = (page - 1) * pageSize;
+      const endIndex = startIndex + pageSize;
+      const paginatedData = filteredData.slice(startIndex, endIndex);
+
+      // Calculate new statistics
+      const newStats = calculateStatistics(filteredData);
+
+      // Update the UI
+      setClaims(paginatedData);
+      setTotalRecords(filteredData.length);
+      setStatistics({
+        uniqueClaimIds: newStats.uniqueClaimIds,
+        dateRange: {
+          min: newStats.dateRange.min || '',
+          max: newStats.dateRange.max || '',
+        },
+        totalAllowedAmount: newStats.totalAllowedAmount,
+        totalRecords: newStats.totalRecords,
+      });
+
+    } catch (error) {
+      console.error('Error applying filter:', error);
+      setError(error instanceof Error ? error.message : 'Failed to apply filter');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const resetFilter = () => {
     setFilterName("")
