@@ -1,5 +1,7 @@
 // filterController.js
 const pool = require('../config/db.config');
+const { getAllClaims } = require('../routes/claimRoutes');
+const CLAIMS_TABLE = process.env.CLAIMS_TABLE || 'claims_merged';
 
 const VALID_OPERATORS = new Set([
     'equals', 'notEquals', 'contains', 'doesNotContain', 
@@ -172,7 +174,7 @@ const executeFilter = async (req, res) => {
         // Build base query from conditions or use default
         const { query: baseQuery, params } = conditions?.length > 0 
             ? buildFilterQuery(conditions)
-            : { query: 'SELECT * FROM claims_dummy', params: [] };
+            : { query: `SELECT * FROM ${CLAIMS_TABLE}`, params: [] };
 
         // Get metadata for the filtered (or all) records
         const statsQuery = `
@@ -229,7 +231,7 @@ const executeFilter = async (req, res) => {
 
 // Helper function to build filter query
 const buildFilterQuery = (conditions) => {
-    let query = 'SELECT * FROM claims_dummy WHERE ';
+    let query = `SELECT * FROM ${CLAIMS_TABLE} WHERE `;
     let params = [];
     let paramCount = 1;
 
@@ -290,7 +292,7 @@ const buildFilterQuery = (conditions) => {
             return `${column} BETWEEN $${paramCount++} AND $${paramCount++}`;
         } else if (operator === 'percentageOfTotal') {
             params.push(value);
-            return `(${column} * 100.0 / (SELECT SUM(${column}) FROM claims_dummy)) > $${paramCount++}`;
+            return `(${column} * 100.0 / (SELECT SUM(${column}) FROM ${CLAIMS_TABLE})) > $${paramCount++}`;
         }
         
         // Date operators
@@ -313,7 +315,7 @@ const buildFilterQuery = (conditions) => {
     // If no conditions, return all records
     if (clauses.length === 0) {
         return {
-            query: 'SELECT * FROM claims_dummy',
+            query: `SELECT * FROM ${CLAIMS_TABLE}`,
             params: []
         };
     }
@@ -378,17 +380,75 @@ const updateFilterClaimsIds = async (req, res) => {
 const getClaims = async (req, res) => {
     const client = await pool.connect();
     try {
-        const { limit = 10, offset = 0 } = req.query;
+        const { page = 1, limit = 10, filterId } = req.query;
+        const offset = (page - 1) * limit;
         
-        // Get paginated records with offset
-        const result = await client.query(
-            `SELECT * FROM claims_dummy 
-             ORDER BY claim_merged_id 
-             LIMIT $1 OFFSET $2`,
-            [limit, offset]
-        );
+        let baseQuery;
+        let params;
 
-        res.json(result.rows);
+        if (filterId) {
+            // Get claims based on saved filter
+            baseQuery = `
+                WITH filter_claims AS (
+                    SELECT UNNEST(claims_ids::jsonb[]) as claim_id 
+                    FROM saved_filters 
+                    WHERE filter_id = $1
+                )
+                SELECT c.* 
+                FROM ${CLAIMS_TABLE} c
+                INNER JOIN filter_claims fc ON c.claim_merged_id = fc.claim_id::text`;
+            params = [filterId, limit, offset];
+        } else {
+            // Get all claims
+            baseQuery = `SELECT * FROM ${CLAIMS_TABLE}`;
+            params = [limit, offset];
+        }
+
+        // Get statistics from the filtered dataset (baseQuery)
+        const statsQuery = `
+            WITH filtered_data AS (${baseQuery})
+            SELECT 
+                COUNT(*) as total_records,
+                COUNT(DISTINCT claim_id) as unique_claim_ids,
+                SUM(CAST(allowed_amount AS DECIMAL(10,2))) as total_allowed_amount,
+                MIN(admission_date) as min_date,
+                MAX(admission_date) as max_date
+            FROM filtered_data`;
+
+        const statsResult = await client.query(
+            statsQuery, 
+            filterId ? [filterId] : []
+        );
+        
+        // Get paginated data from the same filtered dataset
+        const paginatedQuery = `
+            WITH filtered_data AS (${baseQuery})
+            SELECT * FROM filtered_data
+            ORDER BY claim_merged_id 
+            LIMIT $${filterId ? 2 : 1} OFFSET $${filterId ? 3 : 2}`;
+
+        const claimsResult = await client.query(paginatedQuery, params);
+
+        const stats = statsResult.rows[0];
+        
+        res.json({
+            claims: claimsResult.rows,
+            statistics: {
+                totalRecords: parseInt(stats.total_records),
+                uniqueClaimIds: parseInt(stats.unique_claim_ids),
+                totalAllowedAmount: parseFloat(stats.total_allowed_amount || 0),
+                dateRange: {
+                    min: stats.min_date,
+                    max: stats.max_date
+                }
+            },
+            pagination: {
+                total: parseInt(stats.total_records),
+                page: parseInt(page),
+                limit: parseInt(limit),
+                pages: Math.ceil(parseInt(stats.total_records) / limit)
+            }
+        });
     } catch (error) {
         console.error('Error fetching claims:', error);
         res.status(500).json({ 
@@ -399,60 +459,11 @@ const getClaims = async (req, res) => {
         client.release();
     }
 };
-
-// Keep the count endpoint for pagination
-const getClaimsCount = async (req, res) => {
-    const client = await pool.connect();
-    try {
-        const result = await client.query('SELECT COUNT(*) FROM claims_dummy');
-        res.json({ total: parseInt(result.rows[0].count) });
-    } catch (error) {
-        console.error('Error getting claims count:', error);
-        res.status(500).json({ 
-            error: 'Internal server error', 
-            details: error.message 
-        });
-    } finally {
-        client.release();
-    }
-};
-
-// Add this new function to get total statistics
-const getClaimsMetadata = async (req, res) => {
-    const client = await pool.connect();
-    try {
-        const statsQuery = `
-            SELECT 
-                SUM(COALESCE(allowed_amount, 0)) as total_amount,
-                AVG(COALESCE(allowed_amount, 0)) as average_amount,
-                COUNT(DISTINCT patient_id) as unique_patients
-            FROM claims_dummy
-        `;
-        const result = await client.query(statsQuery);
-        const stats = result.rows[0];
-
-        res.json({
-            totalAmount: parseFloat(stats.total_amount || 0),
-            averageAmount: parseFloat(stats.average_amount || 0),
-            uniquePatients: parseInt(stats.unique_patients || 0)
-        });
-    } catch (error) {
-        console.error('Error getting claims metadata:', error);
-        res.status(500).json({ 
-            error: 'Internal server error', 
-            details: error.message 
-        });
-    } finally {
-        client.release();
-    }
-};
-
+// Update the exports to match only the functions we have defined
 module.exports = {
     getSavedFilters,
     saveFilter,
     executeFilter,
     updateFilterClaimsIds,
     getClaims,
-    getClaimsCount,
-    getClaimsMetadata
 };

@@ -10,6 +10,7 @@ const ingestedDataRoutes = require('./routes/ingestedDataRoutes');
 const mappingRoutes = require('./routes/mappingRoutes');
 const dbColumnsRoutes = require('./routes/dbColumnsRoutes');
 const lutController = require('./controllers/lutController');
+const { getClaimsStatistics } = require('./controllers/filterController');
 
 const app = express();
 
@@ -59,7 +60,7 @@ app.use((req, res, next) => {
 
 // Routes - Order matters! More specific routes should come first
 app.use('/api/db-columns', dbColumnsRoutes);
-app.use('/api', filterRoutes);
+app.use('/api/filters', filterRoutes);
 app.use('/api/claims', claimRoutes);
 app.use('/api/ingested-data', ingestedDataRoutes);
 app.use('/api/mappings', mappingRoutes);
