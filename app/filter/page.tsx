@@ -221,7 +221,7 @@ const months = [
 ];
 
 export default function FilterPage() {
-  // Basic state
+  // All state hooks first
   const [filterName, setFilterName] = useState("")
   const [filterKeys, setFilterKeys] = useState<FilterKey[]>([{
     id: "root",
@@ -235,31 +235,25 @@ export default function FilterPage() {
   }])
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([])
   const [selectedSavedFilter, setSelectedSavedFilter] = useState<string | null>(null)
-  
-  // Data and loading states
   const [claims, setClaims] = useState<ClaimData[]>([])
   const [columns, setColumns] = useState<ColumnInfo[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
-
-  // Pagination states
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [totalRecords, setTotalRecords] = useState(0)
-
-  // Statistics state
   const [statistics, setStatistics] = useState<{
     uniqueClaimIds: number;
     dateRange: { min: string; max: string } | null;
     totalAllowedAmount: number;
     totalRecords: number;
   } | null>(null)
+  const [isYearOpen, setIsYearOpen] = useState(false)
+  const [isMonthOpen, setIsMonthOpen] = useState(false)
+  const [cachedClaims, setCachedClaims] = useState<ClaimData[]>([])
 
-  // Add state to manage dropdowns
-  const [isYearOpen, setIsYearOpen] = useState(false);
-  const [isMonthOpen, setIsMonthOpen] = useState(false);
-
+  // Move sensors hook here, before any conditional returns
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -267,15 +261,15 @@ export default function FilterPage() {
     }),
   )
 
-  // Add function to infer data type
-  const inferDataType = (value: any): DataType => {
-    if (value instanceof Date) return 'date'
-    if (typeof value === 'boolean') return 'boolean'
-    if (typeof value === 'number') return 'number'
-    return 'string'
-  }
+  // All useEffect hooks next
+  useEffect(() => {
+    if (cachedClaims.length > 0) {
+      console.log('Cached Claims Size:', cachedClaims.length);
+      console.log('Memory usage estimation:', 
+        Math.round((JSON.stringify(cachedClaims).length * 2) / 1024 / 1024) + 'MB');
+    }
+  }, [cachedClaims]);
 
-  // Modify the initialization effect
   useEffect(() => {
     let isMounted = true;
 
@@ -285,7 +279,7 @@ export default function FilterPage() {
         
         // Fetch both claims data and column types in parallel
         const [claimsResponse, columnTypesResponse] = await Promise.all([
-          fetch(`http://localhost:5000/api/filters/claims?page=${page}&limit=${pageSize}`),
+          fetch(`http://localhost:5000/api/filters/claims?page=1&limit=500`),
           fetch('http://localhost:5000/api/filters/claimsDtype')
         ]);
 
@@ -299,10 +293,14 @@ export default function FilterPage() {
         const claimsData: ClaimsResponse = await claimsResponse.json();
         const columnTypes: ColumnTypeResponse = await columnTypesResponse.json();
 
-        console.log('Column Types:', columnTypes); // Add this console.log
+        console.log('Initial Data Load - Total Claims:', claimsData.claims.length);
+        console.log('Initial Data Load - Total Records in Database:', claimsData.pagination.total);
 
         if (claimsData.claims && claimsData.claims.length > 0 && isMounted) {
-          setClaims(claimsData.claims);
+          setCachedClaims(claimsData.claims); // Store all 500 rows in cache
+          // Initial page display
+          const initialPageData = claimsData.claims.slice(0, pageSize);
+          setClaims(initialPageData);
 
           // Use the column types from the API instead of inferring
           const columnInfo: ColumnInfo[] = columnTypes.data
@@ -344,15 +342,23 @@ export default function FilterPage() {
     return () => {
       isMounted = false;
     };
-  }, []) // Empty dependency array for initial load only
+  }, []);
 
-  // Only render content after initialization
+  // Then the conditional return
   if (!isInitialized) {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     )
+  }
+
+  // Add function to infer data type
+  const inferDataType = (value: any): DataType => {
+    if (value instanceof Date) return 'date'
+    if (typeof value === 'boolean') return 'boolean'
+    if (typeof value === 'number') return 'number'
+    return 'string'
   }
 
   const addCondition = (keyId: string) => {
@@ -438,22 +444,33 @@ export default function FilterPage() {
   }
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
+    const { active, over } = event;
 
-    if (active.id !== over?.id) {
-      setFilterKeys((keys) => {
-        const updateKey = (key: FilterKey): FilterKey => {
-          const oldIndex = key.conditions.indexOf(active.id as string)
-          const newIndex = key.conditions.indexOf(over?.id as string)
-          if (oldIndex !== -1 && newIndex !== -1) {
-            return { ...key, conditions: arrayMove(key.conditions, oldIndex, newIndex) }
-          }
-          return { ...key, children: key.children.map(updateKey) }
-        }
-        return keys.map(updateKey)
-      })
+    if (!over || active.id === over.id) {
+      return;
     }
-  }
+
+    setFilterKeys((keys) => {
+      const updateKey = (key: FilterKey): FilterKey => {
+        // Find if this key contains both conditions
+        const activeIndex = key.conditions.findIndex((c) => c.id === active.id);
+        const overIndex = key.conditions.findIndex((c) => c.id === over.id);
+
+        if (activeIndex !== -1 && overIndex !== -1) {
+          // Both conditions are in this key, perform the swap
+          const newConditions = [...key.conditions];
+          const [movedCondition] = newConditions.splice(activeIndex, 1);
+          newConditions.splice(overIndex, 0, movedCondition);
+          return { ...key, conditions: newConditions };
+        }
+
+        // If not found in this key, check children
+        return { ...key, children: key.children.map(updateKey) };
+      };
+
+      return keys.map(updateKey);
+    });
+  };
 
   const handleConditionChange = (keyId: string, conditionId: string, updates: Partial<FilterCondition>) => {
     setFilterKeys((keys) => {
@@ -889,7 +906,7 @@ export default function FilterPage() {
     );
   };
 
-  // Update the applyFilter function
+  // Update the applyFilter function for client-side pagination
   const applyFilter = async () => {
     const getAllConditions = (key: FilterKey): BackendFilterCondition[] => {
       const conditions = key.conditions.map(condition => {
@@ -934,20 +951,23 @@ export default function FilterPage() {
     try {
       setIsLoading(true);
 
-      // Filter the existing data
-      const filteredData = filterClientData(claims, getAllConditions(filterKeys[0]));
+      // Filter the cached data
+      const filteredData = filterClientData(cachedClaims, getAllConditions(filterKeys[0]));
+      console.log('Cached Data Size:', cachedClaims.length);
+      console.log('After Filtering - Filtered Results:', filteredData.length);
       
-      // Calculate pagination
+      // Calculate pagination from filtered data
       const startIndex = (page - 1) * pageSize;
       const endIndex = startIndex + pageSize;
       const paginatedData = filteredData.slice(startIndex, endIndex);
+      console.log('Current Page Data - Showing Records:', paginatedData.length);
 
-      // Calculate new statistics
-      const newStats = calculateStatistics(filteredData);
-
-      // Update the UI
+      // Update display data
       setClaims(paginatedData);
       setTotalRecords(filteredData.length);
+
+      // Calculate new statistics from filtered data
+      const newStats = calculateStatistics(filteredData);
       setStatistics({
         uniqueClaimIds: newStats.uniqueClaimIds,
         dateRange: {
@@ -966,7 +986,17 @@ export default function FilterPage() {
     }
   };
 
+  // Add a simple function for pagination only (no filtering)
+  const handlePageChange = (newPage: number) => {
+    const startIndex = (newPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const paginatedData = cachedClaims.slice(startIndex, endIndex);
+    setClaims(paginatedData);
+    setPage(newPage);
+  };
+
   const resetFilter = () => {
+    // Reset filter UI state
     setFilterName("")
     setFilterKeys([{ 
       id: "root", 
@@ -974,6 +1004,26 @@ export default function FilterPage() {
       children: [] 
     }])
     setSelectedSavedFilter(null)
+
+    // Reset pagination
+    setPage(1)
+    
+    // Reset display data to first page of cached data
+    const initialPageData = cachedClaims.slice(0, pageSize)
+    setClaims(initialPageData)
+    setTotalRecords(cachedClaims.length)
+
+    // Reset statistics to original cached data
+    const originalStats = calculateStatistics(cachedClaims)
+    setStatistics({
+      uniqueClaimIds: originalStats.uniqueClaimIds,
+      dateRange: {
+        min: originalStats.dateRange.min || '',
+        max: originalStats.dateRange.max || '',
+      },
+      totalAllowedAmount: originalStats.totalAllowedAmount,
+      totalRecords: originalStats.totalRecords,
+    })
   }
 
   const saveFilter = () => {
@@ -998,6 +1048,24 @@ export default function FilterPage() {
       setSelectedSavedFilter(filterName)
     }
   }
+
+  // Add a new function to handle page size changes
+  const handlePageSizeChange = (newSize: number) => {
+    const newPageSize = parseInt(newSize.toString());
+    // Calculate the first item of current page
+    const firstItemCurrentPage = (page - 1) * pageSize;
+    // Calculate new page number to keep position approximately the same
+    const newPage = Math.max(1, Math.ceil(firstItemCurrentPage / newPageSize));
+    
+    setPageSize(newPageSize);
+    setPage(newPage);
+    
+    // Use cached data to update the view
+    const startIndex = (newPage - 1) * newPageSize;
+    const endIndex = startIndex + newPageSize;
+    const paginatedData = cachedClaims.slice(startIndex, endIndex);
+    setClaims(paginatedData);
+  };
 
   return (
     <div className="container mx-auto px-4 py-8 bg-background text-foreground">
@@ -1126,25 +1194,21 @@ export default function FilterPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <div className="text-sm text-muted-foreground">
-                Showing {Math.min((page - 1) * pageSize + 1, totalRecords)} to{' '}
-                {Math.min(page * pageSize, totalRecords)} of {totalRecords} records
-              </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">
+                Showing {claims.length > 0 ? (page - 1) * pageSize + 1 : 0} to {Math.min(page * pageSize, totalRecords)} of {totalRecords} records
+              </span>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Rows per page:</span>
                 <Select
                   value={pageSize.toString()}
-                  onValueChange={(value) => {
-                    setPageSize(Number(value))
-                    setPage(1) // Reset to first page when changing page size
-                  }}
+                  onValueChange={(value) => handlePageSizeChange(parseInt(value))}
                 >
-                  <SelectTrigger className="w-[100px]">
+                  <SelectTrigger className="w-[70px]">
                     <SelectValue>{pageSize}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {[10, 20, 50, 100].map((size) => (
+                    {[10, 25, 50, 75, 100].map((size) => (
                       <SelectItem key={size} value={size.toString()}>
                         {size}
                       </SelectItem>
@@ -1186,14 +1250,18 @@ export default function FilterPage() {
               <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  onClick={() => {
+                    handlePageChange(Math.max(1, page - 1));
+                  }}
                   disabled={page === 1}
                 >
                   Previous
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => setPage(p => p + 1)}
+                  onClick={() => {
+                    handlePageChange(page + 1);
+                  }}
                   disabled={page * pageSize >= totalRecords}
                 >
                   Next
