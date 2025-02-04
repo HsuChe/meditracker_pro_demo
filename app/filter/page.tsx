@@ -26,20 +26,34 @@ import { Check } from "lucide-react"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
 
-// Add export to the FilterCondition interface
-export interface FilterCondition {
+// Update interfaces to fix type errors
+interface ClaimRecord {
+  line_id?: string;
+  claim_id: string;
+  admission_date?: string;
+  allowed_amount?: number;
+  [key: string]: any; // Add index signature to allow dynamic property access
+}
+
+interface ClaimData extends ClaimRecord {
+  claim_id: string;
+  grouped_data: ClaimRecord[];
+}
+
+// Update FilterCondition interface to handle all value types
+interface FilterCondition {
   id: string;
   column: string;
   operator: string;
-  value: string | string[] | null;
-  secondValue?: string;
+  value: string | number | boolean | readonly string[] | null;
+  secondValue?: string | number | null;
   isListValue?: boolean;
 }
 
 interface FilterKey {
   id: string;
-  keyType: 'main' | 'sub' | null;  // null for regular conditions
-  keyColumn?: string;  // The column this key groups by (e.g., 'claim_number' or 'line_id')
+  keyType: 'main' | 'sub' | null;
+  keyColumn: string;
   conditions: FilterCondition[];
   children: FilterKey[];
 }
@@ -50,11 +64,7 @@ interface SavedFilter {
   filterKeys: FilterKey[]
 }
 
-interface ClaimData {
-  [key: string]: any
-}
-
-// Add new interface for the API response
+// Add this interface for the API response
 interface ClaimsResponse {
   claims: ClaimData[];
   statistics: {
@@ -195,6 +205,28 @@ const checkCondition = (value: any, filterValue: any, operator: string, secondVa
   }
 };
 
+// Add this helper function at the top of the file
+const calculateDateRange = (days: number, isBusinessDays: boolean): { start: Date; end: Date } => {
+  const end = new Date();
+  const start = new Date();
+
+  if (isBusinessDays) {
+    // Count only business days (Monday-Friday)
+    let businessDays = days;
+    while (businessDays > 0) {
+      start.setDate(start.getDate() - 1);
+      if (start.getDay() !== 0 && start.getDay() !== 6) {
+        businessDays--;
+      }
+    }
+  } else {
+    // Count all days
+    start.setDate(start.getDate() - days);
+  }
+
+  return { start, end };
+};
+
 // Update the groupDataByClaimId function to properly handle duplicates
 const groupDataByClaimId = (data: ClaimData[]): ClaimData[] => {
   // First, group all records by claim_id
@@ -211,10 +243,10 @@ const groupDataByClaimId = (data: ClaimData[]): ClaimData[] => {
   return Object.entries(groupedData)
     .map(([claimId, records]) => {
       // Sort records to ensure consistent ordering
-      const sortedRecords = records.sort((a, b) => {
+      const sortedRecords = records.sort((a: ClaimRecord, b: ClaimRecord) => {
         // You can add custom sorting logic here if needed
         // For example, sort by date or line number
-        return a.line_id?.localeCompare(b.line_id || '') || 0;
+        return (a.line_id || '').localeCompare(b.line_id || '') || 0;
       });
 
       // Use first record as main record and rest as grouped_data
@@ -227,12 +259,58 @@ const groupDataByClaimId = (data: ClaimData[]): ClaimData[] => {
     .sort((a, b) => a.claim_id.localeCompare(b.claim_id));
 };
 
+// Update the calculateStatistics function with proper Date handling
+const calculateStatistics = (claims: ClaimData[]) => {
+  const uniqueClaimIds = new Set(claims.map(c => c.claim_id)).size;
+  let totalRecords = 0;
+  let minDate: Date | null = null;
+  let maxDate: Date | null = null;
+  let totalAllowedAmount = 0;
+
+  claims.forEach(claim => {
+    const groupedData = Array.isArray(claim.grouped_data) ? claim.grouped_data : [];
+    totalRecords += groupedData.length;
+
+    groupedData.forEach(record => {
+      if (record.admission_date) {
+        const date = new Date(record.admission_date);
+        if (!isNaN(date.getTime())) {
+          if (!minDate || date < minDate) minDate = date;
+          if (!maxDate || date > maxDate) maxDate = date;
+        }
+      }
+
+      if (record.allowed_amount) {
+        const amount = parseFloat(record.allowed_amount.toString());
+        if (!isNaN(amount)) {
+          totalAllowedAmount += amount;
+        }
+      }
+    });
+  });
+
+  // Ensure we have valid dates before calling toISOString
+  const minDateStr = minDate instanceof Date ? minDate.toISOString() : null;
+  const maxDateStr = maxDate instanceof Date ? maxDate.toISOString() : null;
+
+  return {
+    uniqueClaimIds,
+    totalRecords,
+    dateRange: {
+      min: minDateStr,
+      max: maxDateStr
+    },
+    totalAllowedAmount
+  };
+};
+
 export default function FilterPage() {
   // All state hooks first
   const [filterName, setFilterName] = useState("")
   const [filterKeys, setFilterKeys] = useState<FilterKey[]>([{
     id: "root",
     keyType: null,
+    keyColumn: "",
     conditions: [],
     children: [{
       id: "group1",
@@ -292,12 +370,20 @@ export default function FilterPage() {
       try {
         setIsLoading(true);
         
+        // Get the current key column if any
+        const mainKey = filterKeys[0].children[0];
+        const subKey = filterKeys[0].children.find(child => child.keyType === 'sub' && child.keyColumn);
+        const keyColumn = subKey?.keyColumn;
+        
         // Log the request for debugging
-        console.log('Fetching initial data from:', 'http://localhost:5000/api/filters/claims');
+        console.log('Fetching initial data:', {
+          claimsUrl: 'http://localhost:5000/api/filters/claims',
+          columnTypesUrl: `http://localhost:5000/api/filters/claimsDtype${keyColumn ? `?keyColumn=${keyColumn}` : ''}`
+        });
         
         const [claimsResponse, columnTypesResponse] = await Promise.all([
           fetch(`http://localhost:5000/api/filters/claims?page=1&limit=${pageSize}`),
-          fetch('http://localhost:5000/api/filters/claimsDtype')
+          fetch(`http://localhost:5000/api/filters/claimsDtype${keyColumn ? `?keyColumn=${keyColumn}` : ''}`)
         ]);
 
         if (!claimsResponse.ok) {
@@ -422,35 +508,33 @@ export default function FilterPage() {
     });
   };
 
-  const addKey = (parentId: string, keyType: 'main' | 'sub' = 'sub') => {
+  const addKey = (parentId: string, keyType: 'main' | 'sub') => {
     setFilterKeys((keys) => {
-      const updateKey = (key: FilterKey): FilterKey => {
+      const newKeyId = `group${Date.now()}`;
+      const newKey: FilterKey = {
+        id: newKeyId,
+        keyType,
+        keyColumn: keyType === 'main' ? 'claim_id' : '',  // Default for main keys
+        conditions: [],
+        children: []
+      };
+
+      const addKeyToParent = (key: FilterKey): FilterKey => {
         if (key.id === parentId) {
           return {
             ...key,
-            children: [
-              ...key.children,
-              { 
-                id: `group${key.children.length + 1}`, 
-                keyType,
-                // Default to 'claim_id' for main keys
-                keyColumn: keyType === 'main' ? 'claim_id' : "",
-                conditions: [{ 
-                  id: "condition1", 
-                  column: "", 
-                  operator: "equals", 
-                  value: null 
-                }], 
-                children: [] 
-              },
-            ],
-          }
+            children: [...key.children, newKey]
+          };
         }
-        return { ...key, children: key.children.map(updateKey) }
-      }
-      return keys.map(updateKey)
-    })
-  }
+        return {
+          ...key,
+          children: key.children.map(addKeyToParent)
+        };
+      };
+
+      return keys.map(addKeyToParent);
+    });
+  };
 
   const removeKey = (keyId: string) => {
     setFilterKeys((keys) => {
@@ -586,11 +670,16 @@ export default function FilterPage() {
             {/* Add column selector for sub keys */}
             {key.keyType === 'sub' && (
               <Select
-                value={key.keyColumn || ""}
-                onValueChange={(value) => updateKeyColumn(key.id, value)}
+                value={key.keyColumn}
+                onValueChange={(value) => {
+                  console.log('Select value changed:', value);
+                  updateKeyColumn(key.id, value);
+                }}
               >
                 <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Select column" />
+                  <SelectValue placeholder="Select column">
+                    {columns.find(col => col.name === key.keyColumn)?.displayName || 'Select column'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {columns.map((col) => (
@@ -638,16 +727,33 @@ export default function FilterPage() {
     </div>
   )
 
-  // Add this function to handle column selection for sub keys
+  // Update the updateKeyColumn function
   const updateKeyColumn = (keyId: string, column: string) => {
-    setFilterKeys(keys => {
-      const updateKey = (key: FilterKey): FilterKey => {
-        if (key.id === keyId) {
-          return { ...key, keyColumn: column };
-        }
-        return { ...key, children: key.children.map(updateKey) };
+    console.log('Updating key column:', { keyId, column });
+    
+    setFilterKeys(prevKeys => {
+      const updateKeyInTree = (keys: FilterKey[]): FilterKey[] => {
+        return keys.map(key => {
+          if (key.id === keyId) {
+            console.log('Found key to update:', key);
+            return {
+              ...key,
+              keyColumn: column
+            };
+          }
+          if (key.children.length > 0) {
+            return {
+              ...key,
+              children: updateKeyInTree(key.children)
+            };
+          }
+          return key;
+        });
       };
-      return keys.map(updateKey);
+
+      const newKeys = updateKeyInTree(prevKeys);
+      console.log('Updated keys:', newKeys);
+      return newKeys;
     });
   };
 
@@ -750,11 +856,14 @@ export default function FilterPage() {
                       size="icon"
                       className="h-4 w-4"
                       onClick={() => {
-                        const newValues = condition.value.filter((_, i) => i !== index);
-                        handleConditionChange(keyId, condition.id, { 
-                          value: newValues.length > 0 ? newValues : null,
-                          isListValue: newValues.length > 0
-                        });
+                        if (condition.isListValue && Array.isArray(condition.value)) {
+                          const values = condition.value as readonly string[];
+                          const newValues = values.filter((_: string, i: number) => i !== index);
+                          handleConditionChange(keyId, condition.id, { 
+                            value: newValues.length > 0 ? newValues : null,
+                            isListValue: newValues.length > 0
+                          });
+                        }
                       }}
                     >
                       <X className="h-3 w-3" />
@@ -801,9 +910,9 @@ export default function FilterPage() {
           <div className="flex gap-2 items-center w-full">
             <div className="flex-1">
               <DatePicker
-                selected={condition.value ? new Date(condition.value) : null}
-                onChange={(date: Date) => {
-                  handleConditionChange(keyId, condition.id, { value: date?.toISOString() });
+                selected={condition.value && typeof condition.value === 'string' ? new Date(condition.value) : null}
+                onChange={(date: Date | null) => {
+                  handleConditionChange(keyId, condition.id, { value: date?.toISOString() || null });
                 }}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors"
                 placeholderText="Select date..."
@@ -816,8 +925,8 @@ export default function FilterPage() {
                 <div className="flex-1">
                   <DatePicker
                     selected={condition.secondValue ? new Date(condition.secondValue) : null}
-                    onChange={(date: Date) => {
-                      handleConditionChange(keyId, condition.id, { secondValue: date?.toISOString() });
+                    onChange={(date: Date | null) => {
+                      handleConditionChange(keyId, condition.id, { secondValue: date?.toISOString() || null });
                     }}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors"
                     placeholderText="Select end date..."
@@ -934,80 +1043,97 @@ export default function FilterPage() {
     }));
   };
 
-  // Update the applyFilter function for client-side pagination
+  // When building the filter payload in applyFilter function
+  const buildFilterPayload = (filterKeys) => {
+    const conditions = [];
+    
+    // Process filterKeys to build conditions array
+    filterKeys.forEach(rootKey => {
+        rootKey.children.forEach(mainKey => {
+            if (mainKey.keyType === 'main') {
+                // Add main key conditions
+                mainKey.conditions.forEach(condition => {
+                    conditions.push({
+                        key: 'Claim Id',
+                        column: condition.column,
+                        operator: condition.operator,
+                        value: condition.value,
+                        secondValue: condition.secondValue
+                    });
+                });
+
+                // Process sub keys if they exist
+                mainKey.children.forEach(subKey => {
+                    if (subKey.keyType === 'sub') {
+                        // Add sub key conditions
+                        subKey.conditions.forEach(condition => {
+                            conditions.push({
+                                key: `Sub Key: ${subKey.keyColumn}`,
+                                column: condition.column,
+                                operator: condition.operator,
+                                value: condition.value,
+                                secondValue: condition.secondValue
+                            });
+                        });
+                    }
+                });
+            }
+        });
+    });
+
+    return {
+        conditions,
+        page: 1,
+        limit: 10
+    };
+  };
+
+  // Update the applyFilter function
   const applyFilter = async () => {
     try {
-      setIsLoading(true);
+        setIsLoading(true);
+        setError(null);
 
-      // Get conditions from the first child (main key) instead of root
-      const mainKey = filterKeys[0].children[0];
-      console.log('Main key:', mainKey);
+        // Build the new payload structure
+        const payload = buildFilterPayload(filterKeys);
 
-      const conditions = mainKey.conditions
-        .filter(condition => {
-          const isValid = condition.column && condition.operator && condition.value;
-          console.log('Validating condition:', {
-            condition,
-            isValid,
-            hasColumn: !!condition.column,
-            hasOperator: !!condition.operator,
-            hasValue: !!condition.value
-          });
-          return isValid;
-        })
-        .map(condition => {
-          console.log('Building condition for payload:', condition);
-          return {
-            column: condition.column,
-            operator: condition.operator,
-            value: condition.value,
-            secondValue: condition.secondValue
-          };
+        console.log('Sending filter payload:', JSON.stringify(payload, null, 2));
+
+        // Change the URL to point to the backend server
+        const response = await fetch('http://localhost:5000/api/filters/claims', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
         });
 
-      const filterPayload = {
-        conditions,
-        page,
-        limit: pageSize
-      };
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to apply filter');
+        }
 
-      console.log('Sending filter payload:', JSON.stringify(filterPayload, null, 2));
+        const data = await response.json();
+        console.log('Filter response data:', data);
 
-      const response = await fetch('http://localhost:5000/api/filters/claims', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(filterPayload)
-      });
-
-      // Log the response
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Filter request failed:', errorData);
-        throw new Error('Failed to apply filters');
-      }
-
-      const data = await response.json();
-      console.log('Filter response data:', data);
-
-      setClaims(data.claims);
-      setTotalRecords(data.pagination.total);
-      setStatistics({
-        uniqueClaimIds: data.statistics.uniqueClaimIds,
-        dateRange: {
-          min: data.statistics.dateRange.min,
-          max: data.statistics.dateRange.max,
-        },
-        totalAllowedAmount: data.statistics.totalAllowedAmount,
-        totalRecords: data.statistics.totalRecords,
-      });
+        // Update state with the response data
+        setClaims(data.claims);
+        setTotalRecords(data.pagination.total);
+        setStatistics({
+            uniqueClaimIds: data.statistics.uniqueClaimIds,
+            dateRange: {
+                min: data.statistics.dateRange.min,
+                max: data.statistics.dateRange.max,
+            },
+            totalAllowedAmount: data.statistics.totalAllowedAmount,
+            totalRecords: data.statistics.totalRecords,
+        });
 
     } catch (error) {
-      console.error('Error applying filter:', error);
-      setError(error instanceof Error ? error.message : 'Failed to apply filter');
+        console.error('Error applying filter:', error);
+        setError(error instanceof Error ? error.message : 'Failed to apply filter');
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
   };
 
@@ -1102,6 +1228,7 @@ export default function FilterPage() {
     setFilterKeys([{ 
       id: "root", 
       keyType: null,
+      keyColumn: "",
       conditions: [],
       children: [{
         id: "group1",
@@ -1338,9 +1465,9 @@ export default function FilterPage() {
                 <TableBody>
                   {claims.map((claim, pageIndex) => {
                     const isExpanded = expandedRows.has(claim.claim_id);
-                    // Add check for grouped_data existence and first item
-                    const firstLineItem = claim.grouped_data?.[0];
-                    const hasGroupedData = claim.grouped_data && claim.grouped_data.length > 1;
+                    const groupedData = Array.isArray(claim.grouped_data) ? claim.grouped_data : [];
+                    const firstLineItem = groupedData[0];
+                    const hasGroupedData = groupedData.length > 1;
                     
                     return (
                       <React.Fragment key={`${claim.claim_id}-${pageIndex}`}>
@@ -1374,7 +1501,7 @@ export default function FilterPage() {
                         {/* Additional line items when expanded */}
                         {isExpanded && 
                          hasGroupedData && 
-                         claim.grouped_data?.slice(1).map((lineItem, subIndex) => (
+                         groupedData.slice(1).map((lineItem, subIndex) => (
                           <TableRow 
                             key={`${claim.claim_id}-${pageIndex}-sub-${subIndex}`}
                             className="bg-muted/50"

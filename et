@@ -1,0 +1,95 @@
+[33mcommit 914afa916e6e41235dc06e0bcd65add756bb590d[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Mon Feb 3 20:11:28 2025 -0500
+
+    main level filter working.
+
+[33mcommit e6c50052a643f91ae63a8993c26e942d3a6d6654[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Mon Feb 3 19:13:14 2025 -0500
+
+    changed backend to include main grouping.
+
+[33mcommit 87527f2da2a9b8b5aaacd9025fd0bfe7516a301a[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Mon Feb 3 17:16:18 2025 -0500
+
+    added dropdown for groups on claimID
+
+[33mcommit ecebeeb7cd2f062592bc8dfd0379bff2be4ba98e[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Mon Feb 3 16:31:35 2025 -0500
+
+    the Results table is working, and the display portion of the fitler condition is working.
+
+[33mcommit 7d280818c5cd5f645c176e904fda9f3807da52ae[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Sun Feb 2 23:29:55 2025 -0500
+
+    dropdown for column, conditionals working, and input working.
+
+[33mcommit 42d8cad6ff1c4b68272cb45d03e22a1c2d202c62[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Sun Feb 2 20:25:36 2025 -0500
+
+    got the dropdown column working and added search bar, need to work on operator, input value, and LUT next.
+
+[33mcommit 7f4ba5e92bf1346f9cb1be706670f63a17453c01[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Sun Feb 2 19:35:18 2025 -0500
+
+    Got the results rows adn dataset statistics to display correctly, and got the backend to push data from filter to getClaims including all the statistics.
+
+[33mcommit bec507d3b34e94a5d0015ba1079504166a966d0d[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Fri Jan 31 00:30:48 2025 -0500
+
+    weird but with prokey, potential fix
+
+[33mcommit 7fe5d6ad70395cb553644c39452cb5f98046ae39[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Thu Jan 30 15:57:33 2025 -0500
+
+    fixed some ingestion issues.
+
+[33mcommit 700203ed825b67ad8e3134811e81e51aefedb84f[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Thu Jan 30 13:09:41 2025 -0500
+
+    new gitignore to include backend packages for backend tests, and added new backend test, currently the routes and controllers are all passing the test.
+
+[33mcommit 3f6dfdeb1b6a07ba14f0bad9e49403747045256c[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Thu Jan 30 12:01:19 2025 -0500
+
+    added LUT table and LUT ingestion controller.
+
+[33mcommit 2aaeac51e8da34a286681ac9a30d37d43bd2f717[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Thu Jan 30 11:35:05 2025 -0500
+
+    fixed some type error and created context for Error types
+
+[33mcommit b1b3d03385061636fa2cef90d9c6e06a3bfbffbf[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Wed Jan 29 21:57:09 2025 -0500
+
+    changed cosmetic parts to the Data Ingestion Page.
+
+[33mcommit 8ac8b6a535e3127c7053b468e300cc49c62a8795[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Wed Jan 29 21:51:42 2025 -0500
+
+    added a search and date range picker
+
+[33mcommit a81810973920c427c10e42e11e0f518e5fef7827[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Wed Jan 29 21:48:08 2025 -0500
+
+    ingestion page working and changed backend for heroku deployment ready
+
+[33mcommit 01895e8e15c53075d988715fc2445ad4842e0f6f[m
+Author: Daniel Chen <daniel.hl.chen@outlook.com>
+Date:   Wed Jan 29 16:33:00 2025 -0500
+
+    initial commit

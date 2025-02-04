@@ -163,127 +163,406 @@ const saveFilter = async (req, res) => {
 
 // Execute filter and save results
 const executeFilter = async (req, res) => {
-    console.log('Executing filter with request:', {
-        body: req.body,
-        conditions: req.body.conditions
-    });
+    const debugLogs = [];
+    const log = (step, data) => {
+        debugLogs.push({ step, data });
+        console.log('\n' + step + ':', JSON.stringify(data, null, 2));
+    };
 
-    const client = await pool.connect();
+    log('=== Execute Filter Process ===', null);
+    log('1. Received Payload', req.body);
+
     try {
         const { conditions } = req.body;
+        
+        // Separate main and sub conditions
+        const mainConditions = conditions
+            .filter(c => c.key === 'Claim Id')
+            .map(({ column, operator, value, secondValue }) => ({
+                column, operator, value, secondValue
+            }));
 
-        // Validate conditions
-        if (!conditions || !Array.isArray(conditions)) {
-            return res.status(400).json({
-                error: 'Invalid conditions format',
-                details: 'Conditions must be an array'
-            });
-        }
+        const subKeyConditions = conditions
+            .filter(c => c.key.startsWith('Sub Key:'))
+            .map(({ column, operator, value, secondValue }) => ({
+                column, operator, value, secondValue
+            }));
 
-        // Get query from buildFilterQuery
-        const { query, params } = buildFilterQuery(conditions);
+        // Extract sub key column if sub conditions exist
+        const subKeyColumn = subKeyConditions.length > 0 
+            ? conditions.find(c => c.key.startsWith('Sub Key:'))?.key.split(': ')[1]
+            : null;
 
-        console.log('Executing query:', {
-            query,
-            params
+        log('2. Processed Conditions', {
+            mainConditions,
+            subKeyColumn,
+            subKeyConditions
         });
 
-        // Execute query
-        const result = await client.query(query, params);
+        // Build WHERE clauses for both main and sub conditions
+        const buildWhereClauses = (conditions) => {
+            const clauses = [];
+            const params = [];
 
-        // Forward the results to getClaims format
-        return getClaims(req, res);
+            conditions.forEach(condition => {
+                const { column, operator, value, secondValue } = condition;
+                
+                // Add parameter
+                params.push(value);
+                const paramIndex = params.length;
+
+                switch(operator) {
+                    case 'equals':
+                        clauses.push(`${column}::text = $${paramIndex}::text`);
+                        break;
+                    case 'contains':
+                        clauses.push(`${column}::text ILIKE '%' || $${paramIndex}::text || '%'`);
+                        break;
+                    // Add other operators as needed
+                }
+            });
+
+            return { clauses, params };
+        };
+
+        const mainWhere = buildWhereClauses(mainConditions);
+        const subWhere = buildWhereClauses(subKeyConditions);
+
+        log('3. Generated WHERE Clauses', {
+            main: mainWhere.clauses,
+            sub: subWhere.clauses
+        });
+
+        // Build the complete query
+        const buildFilterQuery = () => {
+            const allParams = [...mainWhere.params, ...subWhere.params];
+            
+            if (subKeyColumn) {
+                // Build hierarchical query
+                return {
+                    query: `
+                        WITH matching_claims AS (
+                            SELECT DISTINCT c1.claim_id
+                            FROM ${CLAIMS_TABLE} c1
+                            WHERE ${mainWhere.clauses.length ? mainWhere.clauses.join(' AND ') : 'TRUE'}
+                            AND EXISTS (
+                                SELECT 1
+                                FROM ${CLAIMS_TABLE} c2
+                                WHERE c2.claim_id = c1.claim_id
+                                ${subWhere.clauses.length ? 'AND ' + subWhere.clauses.join(' AND ') : ''}
+                            )
+                        )
+                        SELECT 
+                            jsonb_build_object(
+                                'data', to_jsonb(c.*),
+                                'children', COALESCE(
+                                    jsonb_agg(
+                                        jsonb_build_object(
+                                            'data', to_jsonb(ml.*)
+                                        )
+                                    ) FILTER (WHERE ml.claim_id IS NOT NULL),
+                                    '[]'::jsonb
+                                )
+                            ) as hierarchical_data
+                        FROM ${CLAIMS_TABLE} c
+                        INNER JOIN matching_claims mc ON c.claim_id = mc.claim_id
+                        LEFT JOIN LATERAL (
+                            SELECT *
+                            FROM ${CLAIMS_TABLE} ml
+                            WHERE ml.claim_id = c.claim_id
+                            ${subWhere.clauses.length ? 'AND ' + subWhere.clauses.join(' AND ') : ''}
+                        ) ml ON true
+                        GROUP BY c.claim_id, c.*
+                        ORDER BY c.claim_id
+                    `,
+                    params: allParams
+                };
+            }
+
+            // Build flat query
+            return {
+                query: `
+                    SELECT 
+                        c.claim_id,
+                        COALESCE(
+                            jsonb_agg(
+                                CASE 
+                                    WHEN c.claim_id IS NOT NULL THEN c.*
+                                    ELSE NULL
+                                END
+                                ORDER BY c.line_id
+                            ) FILTER (WHERE c.claim_id IS NOT NULL),
+                            '[]'::jsonb
+                        ) as grouped_data
+                    FROM ${CLAIMS_TABLE} c
+                    WHERE ${mainWhere.clauses.length ? mainWhere.clauses.join(' AND ') : 'TRUE'}
+                    GROUP BY c.claim_id
+                    ORDER BY c.claim_id
+                `,
+                params: mainWhere.params
+            };
+        };
+
+        const { query, params } = buildFilterQuery();
+        
+        log('4. Final Query', { query, params });
+
+        // Execute query and get results
+        const client = await pool.connect();
+        try {
+            const result = await client.query(query, params);
+            
+            // Transform results based on query type
+            const transformedResults = subKeyColumn
+                ? result.rows.map(row => ({
+                    ...row.hierarchical_data.data,
+                    grouped_data: row.hierarchical_data.children.map(child => child.data)
+                }))
+                : result.rows;
+
+            // Calculate statistics
+            const statistics = await calculateStatistics(transformedResults);
+
+            // Return response
+            res.json({
+                claims: transformedResults,
+                statistics,
+                pagination: {
+                    total: transformedResults.length,
+                    page: req.body.page || 1,
+                    limit: req.body.limit || 10,
+                    pages: Math.ceil(transformedResults.length / (req.body.limit || 10))
+                },
+                debug: debugLogs
+            });
+
+        } finally {
+            client.release();
+        }
 
     } catch (error) {
         console.error('Error in executeFilter:', error);
         res.status(500).json({ 
             error: 'Internal server error', 
-            details: error.message 
+            details: error.message,
+            debug: debugLogs
         });
-    } finally {
-        client.release();
+    }
+};
+
+// Helper function to calculate statistics
+const calculateStatistics = async (claims) => {
+    try {
+        const uniqueClaimIds = new Set(claims.map(c => c.claim_id)).size;
+        let totalRecords = 0;
+        let minDate = null;
+        let maxDate = null;
+        let totalAllowedAmount = 0;
+
+        claims.forEach(claim => {
+            // Get the grouped data array, ensuring it exists
+            const groupedData = Array.isArray(claim.grouped_data) ? claim.grouped_data : [];
+            
+            // Count total records (including the main record)
+            totalRecords += groupedData.length;
+
+            // Process all records in grouped_data
+            groupedData.forEach(record => {
+                // Process dates
+                if (record.admission_date) {
+                    const date = new Date(record.admission_date);
+                    if (!isNaN(date.getTime())) {
+                        if (!minDate || date < minDate) minDate = date;
+                        if (!maxDate || date > maxDate) maxDate = date;
+                    }
+                }
+
+                // Process amounts
+                if (record.allowed_amount) {
+                    const amount = parseFloat(record.allowed_amount);
+                    if (!isNaN(amount)) {
+                        totalAllowedAmount += amount;
+                    }
+                }
+            });
+        });
+
+        return {
+            uniqueClaimIds,
+            totalRecords,
+            dateRange: {
+                min: minDate?.toISOString() || null,
+                max: maxDate?.toISOString() || null
+            },
+            totalAllowedAmount
+        };
+    } catch (error) {
+        console.error('Error calculating statistics:', error);
+        throw error;
     }
 };
 
 // Helper function to build filter query
-const buildFilterQuery = (conditions) => {
-    console.log('Starting to build query with conditions:', conditions);
+const buildFilterQuery = (mainConditions, subKeyColumn = null, subKeyConditions = []) => {
+    // Add detailed logging for query transformation
+    console.log('\n=== Query Building Process ===');
+    console.log('1. Initial Parameters:', {
+        mainConditions: JSON.stringify(mainConditions, null, 2),
+        subKeyColumn,
+        subKeyConditions: JSON.stringify(subKeyConditions, null, 2)
+    });
+
     const params = [];
     
-    const whereClauses = conditions.map((condition, index) => {
-        const { column, operator, value } = condition;
-        
-        // Handle array of values
-        if (Array.isArray(value)) {
-            console.log(`Building array condition for ${column}:`, value);
+    // Helper function to build WHERE clauses
+    const buildWhereClauses = (conditions) => {
+        return conditions.map((condition) => {
+            const { column, operator, value } = condition;
+            
+            // Handle array of values
+            if (Array.isArray(value)) {
+                console.log(`Building array condition for ${column}:`, value);
+                
+                switch(operator) {
+                    case 'equals':
+                        value.forEach(v => params.push(v));
+                        const placeholders = value.map((_, i) => `$${params.length - i}`).reverse();
+                        return `${column}::text = ANY(ARRAY[${placeholders.join(', ')}]::text[])`;
+                    
+                    case 'contains':
+                        const containsClauses = value.map(v => {
+                            params.push(v);
+                            return `${column}::text ILIKE '%' || $${params.length}::text || '%'`;
+                        });
+                        return `(${containsClauses.join(' OR ')})`;
+                    
+                    default:
+                        console.log('Unsupported operator for array values:', operator);
+                        return null;
+                }
+            }
+            
+            // Handle single value
+            params.push(value);
+            const paramNum = params.length;
             
             switch(operator) {
                 case 'equals':
-                    // Add all values to params
-                    value.forEach(v => params.push(v));
-                    // Create ($1, $2, $3) style placeholders
-                    const placeholders = value.map((_, i) => `$${params.length - i}`).reverse();
-                    return `${column}::text = ANY(ARRAY[${placeholders.join(', ')}]::text[])`;
-                
+                    return `${column}::text = $${paramNum}::text`;
                 case 'contains':
-                    // For contains with multiple values, use OR
-                    const containsClauses = value.map(v => {
-                        params.push(v);
-                        return `${column}::text ILIKE '%' || $${params.length}::text || '%'`;
-                    });
-                    return `(${containsClauses.join(' OR ')})`;
-                
+                    return `${column}::text ILIKE '%' || $${paramNum}::text || '%'`;
+                case 'starts_with':
+                    return `${column} ILIKE $${paramNum} || '%'`;
+                case 'ends_with':
+                    return `${column} ILIKE '%' || $${paramNum}`;
+                case 'is_null':
+                    return `${column} IS NULL`;
+                case 'is_not_null':
+                    return `${column} IS NOT NULL`;
+                case 'greater_than':
+                    return `${column} > $${paramNum}`;
+                case 'less_than':
+                    return `${column} < $${paramNum}`;
+                case 'before':
+                    return `${column}::date < $${paramNum}::date`;
+                case 'after':
+                    return `${column}::date > $${paramNum}::date`;
                 default:
-                    console.log('Unsupported operator for array values:', operator);
+                    console.log('Unsupported operator:', operator);
                     return null;
             }
-        }
-        
-        // Handle single value (existing code)
-        params.push(value);
-        const paramNum = params.length;  // Use params.length for parameter number
-        
-        console.log(`Building condition for ${column}:`, {
-            value,
-            paramNum: `$${paramNum}`
+        }).filter(Boolean);
+    };
+
+    // Build main and sub conditions
+    const mainWhereClauses = buildWhereClauses(mainConditions);
+    const subWhereClauses = buildWhereClauses(subKeyConditions);
+
+    console.log('2. Generated Where Clauses:', {
+        mainWhereClauses: mainWhereClauses.join(' AND '),
+        subWhereClauses: subWhereClauses.join(' AND ')
+    });
+
+    // If we have a subKeyColumn, build a hierarchical query
+    if (subKeyColumn) {
+        const mainWhereClause = mainWhereClauses.length > 0 
+            ? `WHERE ${mainWhereClauses.join(' AND ')}` 
+            : '';
+
+        console.log('3. Building Hierarchical Query:', {
+            hasMainConditions: mainWhereClauses.length > 0,
+            hasSubConditions: subWhereClauses.length > 0,
+            mainWhereClause,
+            subKeyColumn
         });
 
-        switch(operator) {
-            case 'equals':
-                return `${column}::text = $${paramNum}::text`;
-            case 'contains':
-                return `${column}::text ILIKE '%' || $${paramNum}::text || '%'`;
-            case 'starts_with':
-                return `${column} ILIKE $${paramNum} || '%'`;
-            case 'ends_with':
-                return `${column} ILIKE '%' || $${paramNum}`;
-            case 'is_null':
-                return `${column} IS NULL`;
-            case 'is_not_null':
-                return `${column} IS NOT NULL`;
-            case 'greater_than':
-                return `${column} > $${paramNum}`;
-            case 'less_than':
-                return `${column} < $${paramNum}`;
-            case 'before':
-                return `${column}::date < $${paramNum}::date`;
-            case 'after':
-                return `${column}::date > $${paramNum}::date`;
-            default:
-                console.log('Unsupported operator:', operator);
-                return null;
-        }
-    }).filter(Boolean);
+        const finalQuery = `
+            WITH matching_claims AS (
+                -- First find claims that match the main conditions
+                SELECT DISTINCT c1.claim_id
+                FROM ${CLAIMS_TABLE} c1
+                ${mainWhereClause}
+                AND EXISTS (
+                    -- Then ensure it has at least one line item matching sub conditions
+                    SELECT 1
+                    FROM ${CLAIMS_TABLE} c2
+                    WHERE c2.claim_id = c1.claim_id
+                    ${subWhereClauses.length > 0 ? 'AND ' + subWhereClauses.join(' AND ') : ''}
+                )
+            )
+            SELECT 
+                jsonb_build_object(
+                    'data', to_jsonb(c.*),
+                    'children', COALESCE(
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'data', to_jsonb(ml.*)
+                            )
+                        ) FILTER (WHERE ml.claim_id IS NOT NULL),
+                        '[]'::jsonb
+                    )
+                ) as hierarchical_data
+            FROM ${CLAIMS_TABLE} c
+            INNER JOIN matching_claims mc ON c.claim_id = mc.claim_id
+            LEFT JOIN LATERAL (
+                SELECT *
+                FROM ${CLAIMS_TABLE} ml
+                WHERE ml.claim_id = c.claim_id
+                ${subWhereClauses.length > 0 ? 'AND ' + subWhereClauses.join(' AND ') : ''}
+            ) ml ON true
+            GROUP BY c.claim_id, c.*
+            ORDER BY c.claim_id
+        `;
 
-    const whereClause = whereClauses.length > 0 
-        ? `WHERE ${whereClauses.join(' AND ')}` 
+        console.log('4. Final Hierarchical Query Structure:', {
+            withClause: 'matching_claims CTE to find parent claims',
+            mainSelect: 'Building hierarchical JSON with parent and children',
+            joins: 'Using INNER JOIN with matching_claims and LEFT JOIN LATERAL for children',
+            grouping: 'Grouped by claim_id and all parent columns',
+            parameters: params,
+            parameterMapping: params.map((p, i) => `$${i + 1} = ${p}`)
+        });
+
+        return { query: finalQuery, params, whereClauses: [...mainWhereClauses, ...subWhereClauses] };
+    }
+
+    // Default non-hierarchical query for main conditions only
+    const whereClause = mainWhereClauses.length > 0 
+        ? `WHERE ${mainWhereClauses.join(' AND ')}` 
         : '';
 
     const finalQuery = `
         SELECT 
             c.claim_id,
-            jsonb_agg(
-                to_jsonb(c.*)
+            COALESCE(
+                jsonb_agg(
+                    CASE 
+                        WHEN c.claim_id IS NOT NULL THEN c.*
+                        ELSE NULL
+                    END
+                    ORDER BY c.line_id
+                ) FILTER (WHERE c.claim_id IS NOT NULL),
+                '[]'::jsonb
             ) as grouped_data
         FROM ${CLAIMS_TABLE} c
         ${whereClause}
@@ -297,7 +576,7 @@ const buildFilterQuery = (conditions) => {
         paramMapping: params.map((p, i) => `$${i + 1} = ${p}`)
     });
 
-    return { query: finalQuery, params, whereClauses };
+    return { query: finalQuery, params, whereClauses: mainWhereClauses };
 };
 
 // Main endpoint that uses the built query
@@ -455,10 +734,17 @@ const mapPostgresTypeToFrontend = (postgresType) => {
 // Add this new handler function
 const getClaimsDataTypes = async (req, res) => {
     try {
+        const { keyColumn } = req.query;
         const schema = await getClaimsSchema();
+        
+        // Filter out the key column if provided
+        const filteredSchema = keyColumn 
+            ? schema.filter(col => col.column_name !== keyColumn)
+            : schema;
+
         res.json({
             success: true,
-            data: schema.map(col => ({
+            data: filteredSchema.map(col => ({
                 column: col.column_name,
                 type: mapPostgresTypeToFrontend(col.data_type)
             }))
