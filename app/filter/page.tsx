@@ -292,6 +292,9 @@ export default function FilterPage() {
       try {
         setIsLoading(true);
         
+        // Log the request for debugging
+        console.log('Fetching initial data from:', 'http://localhost:5000/api/filters/claims');
+        
         const [claimsResponse, columnTypesResponse] = await Promise.all([
           fetch(`http://localhost:5000/api/filters/claims?page=1&limit=${pageSize}`),
           fetch('http://localhost:5000/api/filters/claimsDtype')
@@ -305,18 +308,12 @@ export default function FilterPage() {
         }
 
         const claimsData: ClaimsResponse = await claimsResponse.json();
+        console.log('Received claims data:', claimsData); // Debug log
+
         const columnTypes: ColumnTypeResponse = await columnTypesResponse.json();
 
-        console.log('Initial Data Load - Total Claims:', claimsData.claims.length);
-        console.log('Initial Data Load - Total Records in Database:', claimsData.pagination.total);
-
         if (claimsData.claims && claimsData.claims.length > 0 && isMounted) {
-          // Group the data by claim_id
-          const groupedClaims = groupDataByClaimId(claimsData.claims);
-          setClaims(groupedClaims);
-          // Initial page display
-          const initialPageData = groupedClaims.slice(0, pageSize);
-          setCachedClaims(groupedClaims);
+          setClaims(claimsData.claims);
           setTotalRecords(claimsData.pagination.total);
           setStatistics({
             uniqueClaimIds: claimsData.statistics.uniqueClaimIds,
@@ -328,23 +325,27 @@ export default function FilterPage() {
             totalRecords: claimsData.statistics.totalRecords,
           });
 
-          // Use the column types from the API instead of inferring
+          // Set up columns
           const columnInfo: ColumnInfo[] = columnTypes.data
             .map(({ column, type }) => ({
               name: column,
               displayName: formatColumnName(column),
               dataType: type
             }))
-            .sort((a, b) => a.displayName.localeCompare(b.displayName));
+            .sort((a, b) => {
+              if (a.name === 'claim_id') return -1;
+              if (b.name === 'claim_id') return 1;
+              if (a.name === 'line_id') return -1;
+              if (b.name === 'line_id') return 1;
+              return a.displayName.localeCompare(b.displayName);
+            });
 
           setColumns(columnInfo);
           setIsInitialized(true);
         }
       } catch (err) {
-        if (isMounted) {
-          console.error('Error during initialization:', err); // Add this console.log
-          setError(err instanceof Error ? err.message : 'An error occurred');
-        }
+        console.error('Error during initialization:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -921,17 +922,14 @@ export default function FilterPage() {
     }
   };
 
-  // Update handlePageChange to fetch from server
+  // Update handlePageChange function
   const handlePageChange = async (newPage: number) => {
     try {
       setIsLoading(true);
       
-      // Calculate the offset to get the correct page of unique claims
-      const offset = (newPage - 1) * pageSize;
-      
-      // Request enough records to ensure we get pageSize unique claims
+      // Request the new page of data
       const response = await fetch(
-        `http://localhost:5000/api/filters/claims?page=${newPage}&limit=${pageSize}&offset=${offset}`
+        `http://localhost:5000/api/filters/claims?page=${newPage}&limit=${pageSize}`
       );
       
       if (!response.ok) {
@@ -939,29 +937,29 @@ export default function FilterPage() {
       }
 
       const data: ClaimsResponse = await response.json();
-      const groupedClaims = groupDataByClaimId(data.claims);
-
-      // If we got fewer unique claims than expected, try fetching more
-      if (groupedClaims.length < pageSize && data.pagination.total > offset + groupedClaims.length) {
-        const nextResponse = await fetch(
-          `http://localhost:5000/api/filters/claims?page=${newPage + 1}&limit=${pageSize}&offset=${offset + groupedClaims.length}`
-        );
-        
-        if (nextResponse.ok) {
-          const nextData: ClaimsResponse = await nextResponse.json();
-          const additionalClaims = groupDataByClaimId(nextData.claims);
-          // Combine and take only what we need
-          const combinedClaims = [...groupedClaims, ...additionalClaims].slice(0, pageSize);
-          setClaims(combinedClaims);
-        } else {
-          setClaims(groupedClaims);
-        }
-      } else {
-        setClaims(groupedClaims);
-      }
       
-      setPage(newPage);
-      setTotalRecords(data.pagination.total);
+      // Debug log
+      console.log('Page change data received:', data);
+
+      if (data.claims && data.claims.length > 0) {
+        // Directly set the claims data - it's already in the correct structure
+        setClaims(data.claims);
+        setPage(newPage);
+        setTotalRecords(data.pagination.total);
+        
+        // Update statistics if they're included in the response
+        if (data.statistics) {
+          setStatistics({
+            uniqueClaimIds: data.statistics.uniqueClaimIds,
+            dateRange: {
+              min: data.statistics.dateRange.min,
+              max: data.statistics.dateRange.max,
+            },
+            totalAllowedAmount: data.statistics.totalAllowedAmount,
+            totalRecords: data.statistics.totalRecords,
+          });
+        }
+      }
     } catch (error) {
       console.error('Error changing page:', error);
       setError(error instanceof Error ? error.message : 'Failed to change page');
@@ -970,7 +968,7 @@ export default function FilterPage() {
     }
   };
 
-  // Update handlePageSizeChange to fetch from server
+  // Update handlePageSizeChange function similarly
   const handlePageSizeChange = async (newSize: number) => {
     try {
       setIsLoading(true);
@@ -983,11 +981,25 @@ export default function FilterPage() {
       }
 
       const data: ClaimsResponse = await response.json();
-      const groupedClaims = groupDataByClaimId(data.claims);
-      setClaims(groupedClaims);
-      setPageSize(newSize);
-      setPage(1);
-      setTotalRecords(data.pagination.total);
+      
+      if (data.claims && data.claims.length > 0) {
+        setClaims(data.claims);
+        setPageSize(newSize);
+        setPage(1);
+        setTotalRecords(data.pagination.total);
+        
+        if (data.statistics) {
+          setStatistics({
+            uniqueClaimIds: data.statistics.uniqueClaimIds,
+            dateRange: {
+              min: data.statistics.dateRange.min,
+              max: data.statistics.dateRange.max,
+            },
+            totalAllowedAmount: data.statistics.totalAllowedAmount,
+            totalRecords: data.statistics.totalRecords,
+          });
+        }
+      }
     } catch (error) {
       console.error('Error changing page size:', error);
       setError(error instanceof Error ? error.message : 'Failed to change page size');
@@ -1227,30 +1239,26 @@ export default function FilterPage() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-b border-border">
-                    {/* Add expand/collapse column */}
+                  <TableRow>
                     <TableHead className="w-[30px]"></TableHead>
                     {columns.map((column) => (
-                      <TableHead key={column.name} className="text-foreground">
-                        {column.displayName}
-                      </TableHead>
+                      <TableHead key={column.name}>{column.displayName}</TableHead>
                     ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {claims.map((claim, pageIndex) => {
                     const isExpanded = expandedRows.has(claim.claim_id);
-                    const hasGroupedData = filterKeys[0].children[0]?.keyType === 'main' && 
-                                         filterKeys[0].children[0]?.keyColumn === 'claim_id';
+                    // Add check for grouped_data existence and first item
+                    const firstLineItem = claim.grouped_data?.[0];
+                    const hasGroupedData = claim.grouped_data && claim.grouped_data.length > 1;
                     
                     return (
                       <React.Fragment key={`${claim.claim_id}-${pageIndex}`}>
-                        <TableRow 
-                          className="border-b border-border"
-                        >
-                          {/* Add expand/collapse button */}
+                        {/* Main row - showing first line item */}
+                        <TableRow>
                           <TableCell>
-                            {hasGroupedData && claim.grouped_data?.length > 0 && (
+                            {hasGroupedData && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1266,13 +1274,18 @@ export default function FilterPage() {
                             )}
                           </TableCell>
                           {columns.map((column) => (
-                            <TableCell key={column.name} className="text-foreground">
-                              {claim[column.name]?.toString() || '-'}
+                            <TableCell key={column.name}>
+                              {column.name === 'claim_id' 
+                                ? claim.claim_id 
+                                : firstLineItem?.[column.name]?.toString() || '-'}
                             </TableCell>
                           ))}
                         </TableRow>
-                        {/* Show grouped data when expanded */}
-                        {hasGroupedData && isExpanded && claim.grouped_data?.map((subRow: ClaimData, subIndex: number) => (
+
+                        {/* Additional line items when expanded */}
+                        {isExpanded && 
+                         hasGroupedData && 
+                         claim.grouped_data?.slice(1).map((lineItem, subIndex) => (
                           <TableRow 
                             key={`${claim.claim_id}-${pageIndex}-sub-${subIndex}`}
                             className="bg-muted/50"
@@ -1281,8 +1294,10 @@ export default function FilterPage() {
                               <div className="w-6" />
                             </TableCell>
                             {columns.map((column) => (
-                              <TableCell key={column.name} className="text-foreground text-sm">
-                                {subRow[column.name]?.toString() || '-'}
+                              <TableCell key={column.name} className="text-sm">
+                                {column.name === 'claim_id' 
+                                  ? claim.claim_id 
+                                  : lineItem?.[column.name]?.toString() || '-'}
                               </TableCell>
                             ))}
                           </TableRow>

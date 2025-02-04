@@ -1,7 +1,7 @@
 // filterController.js
 const pool = require('../config/db.config');
 const { getAllClaims } = require('../routes/claimRoutes');
-const CLAIMS_TABLE = process.env.CLAIMS_TABLE || 'claims_merged';
+const CLAIMS_TABLE = process.env.CLAIMS_TABLE || 'claims_dummy';
 
 // Update VALID_OPERATORS to match frontend operators
 const VALID_OPERATORS = new Set([
@@ -238,209 +238,130 @@ const executeFilter = async (req, res) => {
 
 // Helper function to build filter query
 const buildFilterQuery = (conditions) => {
-    let query = `SELECT * FROM ${CLAIMS_TABLE} WHERE `;
-    let params = [];
-    let paramCount = 1;
-
-    const clauses = conditions.map(condition => {
+    const whereClauses = conditions.map((condition, index) => {
         const { column, operator, value, secondValue } = condition;
+        const paramBase = index * 2 + 1;
         
-        // String operators
         switch(operator) {
             case 'equals':
-                params.push(value);
-                return `${column} = $${paramCount++}`;
-                
+                return `${column} = $${paramBase}`;
             case 'contains':
-                params.push(`%${value}%`);
-                return `${column} ILIKE $${paramCount++}`;
-                
+                return `${column} ILIKE $${paramBase}`;
             case 'starts_with':
-                params.push(`${value}%`);
-                return `${column} ILIKE $${paramCount++}`;
-                
+                return `${column} ILIKE $${paramBase}`;
             case 'ends_with':
-                params.push(`%${value}`);
-                return `${column} ILIKE $${paramCount++}`;
-                
+                return `${column} ILIKE $${paramBase}`;
             case 'is_null':
                 return `${column} IS NULL`;
-                
             case 'is_not_null':
                 return `${column} IS NOT NULL`;
-                
-            // Numeric operators
             case 'greater_than':
-                params.push(value);
-                return `${column} > $${paramCount++}`;
-                
+                return `${column} > $${paramBase}`;
             case 'less_than':
-                params.push(value);
-                return `${column} < $${paramCount++}`;
-                
+                return `${column} < $${paramBase}`;
             case 'between':
-                if (!secondValue) {
-                    throw new Error('Second value required for between operator');
-                }
-                params.push(value, secondValue);
-                return `${column} BETWEEN $${paramCount++} AND $${paramCount++}`;
-                
-            // Date operators
+                return `${column} BETWEEN $${paramBase} AND $${paramBase + 1}`;
             case 'before':
-                params.push(value);
-                return `${column}::date < $${paramCount++}::date`;
-                
+                return `${column}::date < $${paramBase}::date`;
             case 'after':
-                params.push(value);
-                return `${column}::date > $${paramCount++}::date`;
-                
+                return `${column}::date > $${paramBase}::date`;
             default:
                 throw new Error(`Unsupported operator: ${operator}`);
         }
-    });
+    }).filter(Boolean);
 
-    // If no conditions, return all records
-    if (clauses.length === 0) {
-        return {
-            query: `SELECT * FROM ${CLAIMS_TABLE}`,
-            params: []
-        };
-    }
+    const whereClause = whereClauses.length > 0 
+        ? `WHERE ${whereClauses.join(' AND ')}` 
+        : '';
 
-    return {
-        query: query + clauses.join(' AND '),
-        params
+    return { 
+        query: `
+            SELECT 
+                c.claim_id,
+                jsonb_agg(
+                    to_jsonb(c.*) - 'claim_id'  -- Include all columns except claim_id to avoid redundancy
+                ) as grouped_data
+            FROM ${CLAIMS_TABLE} c
+            ${whereClause}
+            GROUP BY c.claim_id
+            ORDER BY c.claim_id
+            LIMIT ${limit} OFFSET ${offset}
+        `,
+        params: conditions
+            .filter(c => !['is_null', 'is_not_null'].includes(c.operator))
+            .flatMap(c => c.operator === 'between' ? [c.value, c.secondValue] : [c.value])
     };
 };
 
-// Add a new function to update claims_ids
-const updateFilterClaimsIds = async (req, res) => {
-    const client = await pool.connect();
-    try {
-        const { filter_id } = req.params;
-        
-        // Get filter conditions
-        const filterResult = await client.query(
-            'SELECT conditions FROM saved_filters WHERE filter_id = $1',
-            [filter_id]
-        );
-
-        if (filterResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Filter not found' });
-        }
-
-        const { conditions } = filterResult.rows[0];
-
-        // Execute filter to get updated claims_ids
-        const { query, params } = buildFilterQuery(conditions);
-        const claimsResult = await client.query(
-            `SELECT claim_merged_id FROM (${query}) AS filtered_claims`,
-            params
-        );
-
-        const claims_ids = claimsResult.rows.map(row => row.claim_merged_id);
-
-        // Update the filter with new claims_ids
-        await client.query(
-            `UPDATE saved_filters 
-             SET claims_ids = $1,
-                 last_updated = CURRENT_TIMESTAMP
-             WHERE filter_id = $2
-             RETURNING *`,
-            [JSON.stringify(claims_ids), filter_id]
-        );
-
-        res.json({
-            filter_id,
-            updated_claims_count: claims_ids.length,
-            message: 'Claims IDs updated successfully'
-        });
-    } catch (err) {
-        console.error('Error updating claims IDs:', err);
-        res.status(500).json({ error: 'Internal server error', details: err.message });
-    } finally {
-        client.release();
-    }
-};
-
-// Add this new function to get claims with statistics
+// Main endpoint for getting filtered claims data
 const getClaims = async (req, res) => {
     const client = await pool.connect();
     try {
-        const { page = 1, limit = 10, filterId } = req.query;
+        const { page = 1, limit = 10 } = req.method === 'GET' ? req.query : req.body;
+        const conditions = req.method === 'POST' ? req.body.conditions : [];
         const offset = (page - 1) * limit;
-        
-        let baseQuery;
-        let params;
 
-        if (filterId) {
-            // Get claims based on saved filter
-            baseQuery = `
-                WITH filter_claims AS (
-                    SELECT UNNEST(claims_ids::jsonb[]) as claim_id 
-                    FROM saved_filters 
-                    WHERE filter_id = $1
-                )
-                SELECT c.* 
-                FROM ${CLAIMS_TABLE} c
-                INNER JOIN filter_claims fc ON c.claim_merged_id = fc.claim_id::text`;
-            params = [filterId, limit, offset];
-        } else {
-            // Get all claims
-            baseQuery = `SELECT * FROM ${CLAIMS_TABLE}`;
-            params = [limit, offset];
-        }
+        // Build base query
+        const { query: baseQuery, params } = conditions?.length > 0 
+            ? buildFilterQuery(conditions)
+            : { 
+                query: `
+                    SELECT 
+                        c.claim_id,
+                        jsonb_agg(
+                            to_jsonb(c.*) - 'claim_id'  -- Include all columns except claim_id to avoid redundancy
+                        ) as grouped_data
+                    FROM ${CLAIMS_TABLE} c
+                    GROUP BY c.claim_id
+                    ORDER BY c.claim_id
+                    LIMIT ${limit} OFFSET ${offset}
+                `, 
+                params: [] 
+            };
 
-        // Get statistics from the filtered dataset (baseQuery)
+        // Update statistics query
         const statsQuery = `
-            WITH filtered_data AS (${baseQuery})
             SELECT 
-                COUNT(*) as total_records,
                 COUNT(DISTINCT claim_id) as unique_claim_ids,
-                SUM(CAST(allowed_amount AS DECIMAL(10,2))) as total_allowed_amount,
+                COUNT(*) as total_records,
                 MIN(admission_date) as min_date,
                 MAX(admission_date) as max_date
-            FROM filtered_data`;
+            FROM ${CLAIMS_TABLE}
+            ${conditions.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : ''}
+        `;
 
-        const statsResult = await client.query(
-            statsQuery, 
-            filterId ? [filterId] : []
-        );
-        
-        // Get paginated data from the same filtered dataset
-        const paginatedQuery = `
-            WITH filtered_data AS (${baseQuery})
-            SELECT * FROM filtered_data
-            ORDER BY claim_merged_id 
-            LIMIT $${filterId ? 2 : 1} OFFSET $${filterId ? 3 : 2}`;
-
-        const claimsResult = await client.query(paginatedQuery, params);
+        // Execute queries
+        const [statsResult, result] = await Promise.all([
+            client.query(statsQuery, params),
+            client.query(baseQuery, params)
+        ]);
 
         const stats = statsResult.rows[0];
-        
+
         res.json({
-            claims: claimsResult.rows,
+            claims: result.rows,
             statistics: {
-                totalRecords: parseInt(stats.total_records),
-                uniqueClaimIds: parseInt(stats.unique_claim_ids),
-                totalAllowedAmount: parseFloat(stats.total_allowed_amount || 0),
+                uniqueClaimIds: parseInt(stats.unique_claim_ids) || 0,
+                totalRecords: parseInt(stats.total_records) || 0,
                 dateRange: {
-                    min: stats.min_date,
-                    max: stats.max_date
+                    min: stats.min_date || null,
+                    max: stats.max_date || null
                 }
             },
             pagination: {
-                total: parseInt(stats.total_records),
+                total: parseInt(stats.unique_claim_ids) || 0,
                 page: parseInt(page),
                 limit: parseInt(limit),
-                pages: Math.ceil(parseInt(stats.total_records) / limit)
+                pages: Math.ceil((parseInt(stats.unique_claim_ids) || 0) / limit)
             }
         });
+
     } catch (error) {
-        console.error('Error fetching claims:', error);
+        console.error('Error in getClaims:', error);
         res.status(500).json({ 
             error: 'Internal server error', 
-            details: error.message 
+            details: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     } finally {
         client.release();
@@ -515,8 +436,7 @@ module.exports = {
     getSavedFilters,
     saveFilter,
     executeFilter,
-    updateFilterClaimsIds,
     getClaims,
     getClaimsSchema,
-    getClaimsDataTypes,  // Add this new export
+    getClaimsDataTypes,
 };

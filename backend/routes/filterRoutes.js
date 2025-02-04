@@ -2,22 +2,13 @@
 const express = require('express');
 const router = express.Router();
 const {
-    getSavedFilters,
-    saveFilter,
-    executeFilter,
-    updateFilterClaimsIds,
     getClaims,
     getClaimsDataTypes
 } = require('../controllers/filterController');
 
-// Filter routes
-router.get('/saved', getSavedFilters);
-router.post('/save', saveFilter);
-router.post('/execute', executeFilter);
-router.put('/:filter_id/update-claims', updateFilterClaimsIds);
-
 // Claims routes
-router.get('/claims', getClaims);
+router.post('/claims', getClaims);  // For filtered data
+router.get('/claims', getClaims);   // For initial load/pagination
 router.get('/claimsDtype', getClaimsDataTypes);
 
 module.exports = router;

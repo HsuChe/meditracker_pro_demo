@@ -4,6 +4,7 @@ require('dotenv').config({
 });
 const express = require('express');
 const cors = require('cors');
+const bodyParser = require('body-parser');
 const filterRoutes = require('./routes/filterRoutes');
 const claimRoutes = require('./routes/claimRoutes');
 const ingestedDataRoutes = require('./routes/ingestedDataRoutes');
