@@ -500,58 +500,115 @@ export default function FilterPage() {
     });
   };
 
-  const handleConditionChange = (keyId: string, conditionId: string, updates: Partial<FilterCondition>) => {
-    setFilterKeys((keys) => {
-      const updateKey = (key: FilterKey): FilterKey => {
-        if (key.id === keyId) {
-          return {
-            ...key,
-            conditions: key.conditions.map((condition) => {
-              if (condition.id === conditionId) {
-                const updatedCondition = { ...condition, ...updates };
-                
-                // Get column info for type checking
-                const columnInfo = columns.find(col => col.name === updatedCondition.column);
-                if (columnInfo) {
-                  // Convert value based on column type
-                  if (columnInfo.dataType === 'number' && typeof updatedCondition.value === 'string') {
-                    updatedCondition.value = parseFloat(updatedCondition.value) || null;
-                  } else if (columnInfo.dataType === 'boolean' && typeof updatedCondition.value === 'string') {
-                    updatedCondition.value = updatedCondition.value.toLowerCase() === 'true';
-                  }
+  const updateCondition = (
+    keys: FilterKey[], 
+    keyId: string, 
+    conditionId: string, 
+    updates: Partial<FilterCondition>
+  ): FilterKey[] => {
+    return keys.map(key => {
+      if (key.id === keyId) {
+        return {
+          ...key,
+          conditions: key.conditions.map(condition => {
+            if (condition.id === conditionId) {
+              // For column updates, use the raw column name, not the display name
+              const updatedCondition = { 
+                ...condition, 
+                ...updates,
+                // If we're updating the column, make sure to use the raw name
+                column: updates.column 
+                  ? columns.find(col => col.displayName === updates.column)?.name || updates.column
+                  : condition.column
+              };
+              
+              // Get column info for type checking
+              const columnInfo = columns.find(col => col.name === updatedCondition.column);
+              console.log('Column info for type checking:', {
+                columnName: updatedCondition.column,
+                columnInfo,
+                allColumns: columns
+              });
+              
+              if (columnInfo) {
+                // Convert value based on column type
+                if (columnInfo.dataType === 'number' && typeof updatedCondition.value === 'string') {
+                  updatedCondition.value = parseFloat(updatedCondition.value) || null;
+                } else if (columnInfo.dataType === 'boolean' && typeof updatedCondition.value === 'string') {
+                  updatedCondition.value = updatedCondition.value.toLowerCase() === 'true';
                 }
-                
-                return updatedCondition;
               }
-              return condition;
-            })
-          };
-        }
-        return { ...key, children: key.children.map(updateKey) };
+              
+              return updatedCondition;
+            }
+            return condition;
+          })
+        };
+      }
+      return {
+        ...key,
+        children: key.children.map(child => 
+          updateCondition([child], keyId, conditionId, updates)[0]
+        )
       };
-      return keys.map(updateKey);
+    });
+  };
+
+  const handleConditionChange = (keyId: string, conditionId: string, updates: Partial<FilterCondition>) => {
+    console.log('Condition change:', {
+      keyId,
+      conditionId,
+      updates,
+      currentColumns: columns // Log current columns for debugging
+    });
+
+    setFilterKeys(keys => {
+      const newKeys = [...keys];
+      const result = updateCondition(newKeys, keyId, conditionId, updates);
+      console.log('Updated filter keys:', result);
+      return result;
     });
   };
 
   const renderFilterKey = (key: FilterKey, level = 0) => (
     <div key={key.id} className={`ml-${level * 4}`}>
       <div className="flex items-center gap-2 mb-2">
-        {level > 0 && (
+        {/* Show label for all non-root keys */}
+        {key.id !== "root" && (
           <div className="flex items-center gap-2">
-            <CornerDownRight className="h-4 w-4 text-muted-foreground mr-2" />
+            {/* Always show arrow for sub keys */}
+            {(level > 0 || key.keyType === 'sub') && (
+              <CornerDownRight className="h-4 w-4 text-muted-foreground mr-2" />
+            )}
             <span className="text-sm font-medium text-muted-foreground">
-              {key.keyType === 'main' ? 'Main Key' : 'Sub Key'} {key.id.replace("group", "")}
+              {key.keyType === 'main' ? 'Main Key: Claim ID' : 'Sub Key: Column'} 
             </span>
-            {key.keyType === 'main' && (
-              <span className="text-sm text-muted-foreground">
-                (Claim ID)
-              </span>
+            {/* Add column selector for sub keys */}
+            {key.keyType === 'sub' && (
+              <Select
+                value={key.keyColumn || ""}
+                onValueChange={(value) => updateKeyColumn(key.id, value)}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Select column" />
+                </SelectTrigger>
+                <SelectContent>
+                  {columns.map((col) => (
+                    <SelectItem key={col.name} value={col.name}>
+                      {col.displayName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
         )}
-        <Button variant="outline" size="sm" onClick={() => addCondition(key.id)}>
-          Add Condition
-        </Button>
+        {/* Only show Add Condition for non-root keys */}
+        {key.id !== "root" && (
+          <Button variant="outline" size="sm" onClick={() => addCondition(key.id)}>
+            Add Condition
+          </Button>
+        )}
         {level === 0 && key.children.length === 0 && (
           <Button variant="outline" size="sm" onClick={() => addKey(key.id, 'main')}>
             Add Main Key
@@ -569,14 +626,30 @@ export default function FilterPage() {
         )}
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={key.conditions.map(c => c.id)} strategy={verticalListSortingStrategy}>
-          {key.conditions.map((condition) => renderFilterCondition(condition, key.id))}
-        </SortableContext>
-      </DndContext>
+      {/* Indent conditions for sub keys */}
+      <div className={`${key.keyType === 'sub' ? 'ml-6' : ''}`}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={key.conditions.map(c => c.id)} strategy={verticalListSortingStrategy}>
+            {key.conditions.map((condition) => renderFilterCondition(condition, key.id))}
+          </SortableContext>
+        </DndContext>
+      </div>
       {key.children.map((childKey) => renderFilterKey(childKey, level + 1))}
     </div>
   )
+
+  // Add this function to handle column selection for sub keys
+  const updateKeyColumn = (keyId: string, column: string) => {
+    setFilterKeys(keys => {
+      const updateKey = (key: FilterKey): FilterKey => {
+        if (key.id === keyId) {
+          return { ...key, keyColumn: column };
+        }
+        return { ...key, children: key.children.map(updateKey) };
+      };
+      return keys.map(updateKey);
+    });
+  };
 
   const renderFilterCondition = (condition: FilterCondition, keyId: string) => {
     const selectedColumn = columns.find(col => col.name === condition.column);
@@ -866,28 +939,40 @@ export default function FilterPage() {
     try {
       setIsLoading(true);
 
-      // Get all conditions and convert them to backend format
-      const getAllConditions = (key: FilterKey): BackendFilterCondition[] => {
-        const conditions = key.conditions.map(condition => ({
-          column: condition.column,
-          operator: condition.operator,
-          value: condition.value,
-          secondValue: condition.secondValue
-        }));
+      // Get conditions from the first child (main key) instead of root
+      const mainKey = filterKeys[0].children[0];
+      console.log('Main key:', mainKey);
 
-        const childConditions = key.children.flatMap(getAllConditions);
-        return [...conditions, ...childConditions];
-      };
+      const conditions = mainKey.conditions
+        .filter(condition => {
+          const isValid = condition.column && condition.operator && condition.value;
+          console.log('Validating condition:', {
+            condition,
+            isValid,
+            hasColumn: !!condition.column,
+            hasOperator: !!condition.operator,
+            hasValue: !!condition.value
+          });
+          return isValid;
+        })
+        .map(condition => {
+          console.log('Building condition for payload:', condition);
+          return {
+            column: condition.column,
+            operator: condition.operator,
+            value: condition.value,
+            secondValue: condition.secondValue
+          };
+        });
 
-      // Prepare filter payload
       const filterPayload = {
-        conditions: getAllConditions(filterKeys[0]),
-        mainKey: filterKeys[0].children[0]?.keyColumn,
+        conditions,
         page,
         limit: pageSize
       };
 
-      // Send filter request to backend
+      console.log('Sending filter payload:', JSON.stringify(filterPayload, null, 2));
+
       const response = await fetch('http://localhost:5000/api/filters/claims', {
         method: 'POST',
         headers: {
@@ -896,13 +981,17 @@ export default function FilterPage() {
         body: JSON.stringify(filterPayload)
       });
 
+      // Log the response
       if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Filter request failed:', errorData);
         throw new Error('Failed to apply filters');
       }
 
-      const data: ClaimsResponse = await response.json();
-      const groupedClaims = groupDataByClaimId(data.claims);
-      setClaims(groupedClaims);
+      const data = await response.json();
+      console.log('Filter response data:', data);
+
+      setClaims(data.claims);
       setTotalRecords(data.pagination.total);
       setStatistics({
         uniqueClaimIds: data.statistics.uniqueClaimIds,

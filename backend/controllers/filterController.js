@@ -163,70 +163,39 @@ const saveFilter = async (req, res) => {
 
 // Execute filter and save results
 const executeFilter = async (req, res) => {
+    console.log('Executing filter with request:', {
+        body: req.body,
+        conditions: req.body.conditions
+    });
+
     const client = await pool.connect();
     try {
-        const { conditions, page = 1, limit = 50 } = req.body;
-        const offset = (page - 1) * limit;
-        const startTime = Date.now();
+        const { conditions } = req.body;
 
         // Validate conditions
-        if (conditions) {
-            conditions.forEach(condition => {
-                if (!VALID_OPERATORS.has(condition.operator)) {
-                    throw new Error(`Invalid operator: ${condition.operator}`);
-                }
+        if (!conditions || !Array.isArray(conditions)) {
+            return res.status(400).json({
+                error: 'Invalid conditions format',
+                details: 'Conditions must be an array'
             });
         }
 
-        // Build base query from conditions or use default
-        const { query: baseQuery, params } = conditions?.length > 0 
-            ? buildFilterQuery(conditions)
-            : { query: `SELECT * FROM ${CLAIMS_TABLE}`, params: [] };
+        // Get query from buildFilterQuery
+        const { query, params } = buildFilterQuery(conditions);
 
-        // Get metadata for the filtered records
-        const statsQuery = `
-            WITH filtered_claims AS (${baseQuery})
-            SELECT 
-                COUNT(*) as total_records,
-                SUM(COALESCE(allowed_amount, 0)) as total_amount,
-                AVG(COALESCE(allowed_amount, 0)) as average_amount,
-                COUNT(DISTINCT patient_id) as unique_patients,
-                MIN(admission_date) as start_date,
-                MAX(admission_date) as end_date
-            FROM filtered_claims
-        `;
-        const statsResult = await client.query(statsQuery, params);
-        const stats = statsResult.rows[0];
-
-        // Get paginated results
-        const paginatedQuery = `
-            WITH filtered_claims AS (${baseQuery})
-            SELECT * FROM filtered_claims
-            ORDER BY claim_merged_id
-            LIMIT ${limit} OFFSET ${offset}
-        `;
-        const result = await client.query(paginatedQuery, params);
-
-        res.json({
-            records: result.rows,
-            metadata: {
-                totalRecords: parseInt(stats.total_records),
-                totalAmount: parseFloat(stats.total_amount || 0),
-                averageAmount: parseFloat(stats.average_amount || 0),
-                uniquePatients: parseInt(stats.unique_patients),
-                dateRange: {
-                    start: stats.start_date,
-                    end: stats.end_date
-                },
-                currentPage: parseInt(page),
-                totalPages: Math.ceil(parseInt(stats.total_records) / limit),
-                pageSize: parseInt(limit)
-            },
-            execution_time_ms: Date.now() - startTime
+        console.log('Executing query:', {
+            query,
+            params
         });
 
+        // Execute query
+        const result = await client.query(query, params);
+
+        // Forward the results to getClaims format
+        return getClaims(req, res);
+
     } catch (error) {
-        console.error('Error executing filter:', error);
+        console.error('Error in executeFilter:', error);
         res.status(500).json({ 
             error: 'Internal server error', 
             details: error.message 
@@ -238,35 +207,71 @@ const executeFilter = async (req, res) => {
 
 // Helper function to build filter query
 const buildFilterQuery = (conditions) => {
+    console.log('Starting to build query with conditions:', conditions);
+    const params = [];
+    
     const whereClauses = conditions.map((condition, index) => {
-        const { column, operator, value, secondValue } = condition;
-        const paramBase = index * 2 + 1;
+        const { column, operator, value } = condition;
         
+        // Handle array of values
+        if (Array.isArray(value)) {
+            console.log(`Building array condition for ${column}:`, value);
+            
+            switch(operator) {
+                case 'equals':
+                    // Add all values to params
+                    value.forEach(v => params.push(v));
+                    // Create ($1, $2, $3) style placeholders
+                    const placeholders = value.map((_, i) => `$${params.length - i}`).reverse();
+                    return `${column}::text = ANY(ARRAY[${placeholders.join(', ')}]::text[])`;
+                
+                case 'contains':
+                    // For contains with multiple values, use OR
+                    const containsClauses = value.map(v => {
+                        params.push(v);
+                        return `${column}::text ILIKE '%' || $${params.length}::text || '%'`;
+                    });
+                    return `(${containsClauses.join(' OR ')})`;
+                
+                default:
+                    console.log('Unsupported operator for array values:', operator);
+                    return null;
+            }
+        }
+        
+        // Handle single value (existing code)
+        params.push(value);
+        const paramNum = params.length;  // Use params.length for parameter number
+        
+        console.log(`Building condition for ${column}:`, {
+            value,
+            paramNum: `$${paramNum}`
+        });
+
         switch(operator) {
             case 'equals':
-                return `${column} = $${paramBase}`;
+                return `${column}::text = $${paramNum}::text`;
             case 'contains':
-                return `${column} ILIKE $${paramBase}`;
+                return `${column}::text ILIKE '%' || $${paramNum}::text || '%'`;
             case 'starts_with':
-                return `${column} ILIKE $${paramBase}`;
+                return `${column} ILIKE $${paramNum} || '%'`;
             case 'ends_with':
-                return `${column} ILIKE $${paramBase}`;
+                return `${column} ILIKE '%' || $${paramNum}`;
             case 'is_null':
                 return `${column} IS NULL`;
             case 'is_not_null':
                 return `${column} IS NOT NULL`;
             case 'greater_than':
-                return `${column} > $${paramBase}`;
+                return `${column} > $${paramNum}`;
             case 'less_than':
-                return `${column} < $${paramBase}`;
-            case 'between':
-                return `${column} BETWEEN $${paramBase} AND $${paramBase + 1}`;
+                return `${column} < $${paramNum}`;
             case 'before':
-                return `${column}::date < $${paramBase}::date`;
+                return `${column}::date < $${paramNum}::date`;
             case 'after':
-                return `${column}::date > $${paramBase}::date`;
+                return `${column}::date > $${paramNum}::date`;
             default:
-                throw new Error(`Unsupported operator: ${operator}`);
+                console.log('Unsupported operator:', operator);
+                return null;
         }
     }).filter(Boolean);
 
@@ -274,85 +279,123 @@ const buildFilterQuery = (conditions) => {
         ? `WHERE ${whereClauses.join(' AND ')}` 
         : '';
 
-    return { 
-        query: `
-            SELECT 
-                c.claim_id,
-                jsonb_agg(
-                    to_jsonb(c.*) - 'claim_id'  -- Include all columns except claim_id to avoid redundancy
-                ) as grouped_data
-            FROM ${CLAIMS_TABLE} c
-            ${whereClause}
-            GROUP BY c.claim_id
-            ORDER BY c.claim_id
-            LIMIT ${limit} OFFSET ${offset}
-        `,
-        params: conditions
-            .filter(c => !['is_null', 'is_not_null'].includes(c.operator))
-            .flatMap(c => c.operator === 'between' ? [c.value, c.secondValue] : [c.value])
-    };
+    const finalQuery = `
+        SELECT 
+            c.claim_id,
+            jsonb_agg(
+                to_jsonb(c.*)
+            ) as grouped_data
+        FROM ${CLAIMS_TABLE} c
+        ${whereClause}
+        GROUP BY c.claim_id
+        ORDER BY c.claim_id
+    `;
+
+    console.log('Final query:', {
+        sql: finalQuery,
+        params,
+        paramMapping: params.map((p, i) => `$${i + 1} = ${p}`)
+    });
+
+    return { query: finalQuery, params, whereClauses };
 };
 
-// Main endpoint for getting filtered claims data
+// Main endpoint that uses the built query
 const getClaims = async (req, res) => {
+    console.log('Received filter request:', {
+        method: req.method,
+        body: req.body,
+        query: req.query,
+        conditions: req.method === 'POST' ? req.body.conditions : [],
+        page: req.method === 'POST' ? req.body.page : req.query.page,
+        limit: req.method === 'POST' ? req.body.limit : req.query.limit
+    });
+
     const client = await pool.connect();
     try {
-        const { page = 1, limit = 10 } = req.method === 'GET' ? req.query : req.body;
-        const conditions = req.method === 'POST' ? req.body.conditions : [];
+        // Get pagination params, ensuring defaults if undefined
+        const page = parseInt(req.method === 'POST' ? req.body.page : req.query.page) || 1;
+        const limit = parseInt(req.method === 'POST' ? req.body.limit : req.query.limit) || 10;
         const offset = (page - 1) * limit;
+        
+        // Get conditions only from POST requests
+        const conditions = req.method === 'POST' ? (req.body.conditions || []) : [];
 
-        // Build base query
-        const { query: baseQuery, params } = conditions?.length > 0 
+        // Get the base query from buildFilterQuery
+        const { query: baseQuery, params, whereClauses } = conditions.length > 0 
             ? buildFilterQuery(conditions)
             : { 
                 query: `
                     SELECT 
                         c.claim_id,
                         jsonb_agg(
-                            to_jsonb(c.*) - 'claim_id'  -- Include all columns except claim_id to avoid redundancy
+                            to_jsonb(c.*)
                         ) as grouped_data
                     FROM ${CLAIMS_TABLE} c
                     GROUP BY c.claim_id
                     ORDER BY c.claim_id
-                    LIMIT ${limit} OFFSET ${offset}
                 `, 
-                params: [] 
+                params: [],
+                whereClauses: []
             };
 
-        // Update statistics query
+        console.log('Executing query with:', {
+            baseQuery,
+            params,
+            page,
+            limit,
+            offset
+        });
+
+        // Add pagination to the base query
+        const paginatedQuery = `
+            WITH base_results AS (
+                ${baseQuery}
+            )
+            SELECT *
+            FROM base_results
+            LIMIT ${limit} OFFSET ${offset}
+        `;
+
+        // Get statistics using the same conditions
         const statsQuery = `
+            WITH filtered_data AS (
+                SELECT c.*
+                FROM ${CLAIMS_TABLE} c
+                ${whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : ''}
+            )
             SELECT 
                 COUNT(DISTINCT claim_id) as unique_claim_ids,
                 COUNT(*) as total_records,
                 MIN(admission_date) as min_date,
-                MAX(admission_date) as max_date
-            FROM ${CLAIMS_TABLE}
-            ${conditions.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : ''}
+                MAX(admission_date) as max_date,
+                SUM(allowed_amount) as total_allowed_amount
+            FROM filtered_data
         `;
 
-        // Execute queries
-        const [statsResult, result] = await Promise.all([
-            client.query(statsQuery, params),
-            client.query(baseQuery, params)
+        // Execute both queries
+        const [results, stats] = await Promise.all([
+            client.query(paginatedQuery, params),
+            client.query(statsQuery, params)
         ]);
 
-        const stats = statsResult.rows[0];
-
+        // Return the structure that page.tsx expects
         res.json({
-            claims: result.rows,
+            claims: results.rows,
             statistics: {
-                uniqueClaimIds: parseInt(stats.unique_claim_ids) || 0,
-                totalRecords: parseInt(stats.total_records) || 0,
+                uniqueClaimIds: parseInt(stats.rows[0].unique_claim_ids),
+                totalRecords: parseInt(stats.rows[0].total_records),
                 dateRange: {
-                    min: stats.min_date || null,
-                    max: stats.max_date || null
-                }
+                    min: stats.rows[0].min_date,
+                    max: stats.rows[0].max_date
+                },
+                totalAllowedAmount: parseFloat(stats.rows[0].total_allowed_amount)
             },
             pagination: {
-                total: parseInt(stats.unique_claim_ids) || 0,
+                total: parseInt(stats.rows[0].unique_claim_ids),
                 page: parseInt(page),
                 limit: parseInt(limit),
-                pages: Math.ceil((parseInt(stats.unique_claim_ids) || 0) / limit)
+                pages: Math.ceil(parseInt(stats.rows[0].unique_claim_ids) / limit)
             }
         });
 
@@ -360,8 +403,7 @@ const getClaims = async (req, res) => {
         console.error('Error in getClaims:', error);
         res.status(500).json({ 
             error: 'Internal server error', 
-            details: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            details: error.message 
         });
     } finally {
         client.release();
