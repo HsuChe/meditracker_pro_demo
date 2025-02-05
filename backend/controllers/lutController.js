@@ -5,10 +5,10 @@ const createLUT = async (req, res) => {
   try {
     const { name, type, data } = req.body;
     
-    // Split data into rows (either from CSV or manual input)
-    const entries = type === 'MANUAL' 
-      ? data.split('\n').map(line => line.trim()).filter(Boolean)
-      : data;
+    // Process data into array of entries
+    const entries = data.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
 
     // Calculate total size based on entries
     const sizeInBytes = entries.reduce((total, entry) => total + Buffer.byteLength(entry, 'utf8'), 0);
@@ -22,9 +22,9 @@ const createLUT = async (req, res) => {
        (name, record_count, file_size_bytes, ingestion_date, 
         activity_status, processing_status, type, batch_number, total_batches)
        VALUES ($1, $2, $3, CURRENT_TIMESTAMP, 
-              'active', 'completed', 'lut', 1, 1)
+              'active', 'completed', $4, 1, 1)
        RETURNING ingested_data_id`,
-      [name, entries.length, sizeInBytes]
+      [name, entries.length, sizeInBytes, type]
     );
 
     const ingestionId = parentResult.rows[0].ingested_data_id;

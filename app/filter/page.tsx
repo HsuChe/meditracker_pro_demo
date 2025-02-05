@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useMemo } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -61,6 +61,14 @@ export default function FilterPage() {
   const [lutNames, setLutNames] = useState<string[]>([])
   const [ingestedData, setIngestedData] = useState<IngestedDataResponse>({ records: [] })
 
+  // Memoize the ingested IDs array
+  const ingestedLutIds = useMemo(() => 
+    ingestedData.records
+      .filter((record: any) => record.type === 'lut')
+      .map((record: any) => record.ingested_data_id),
+    [ingestedData.records] // Only recompute when records change
+  );
+
   // Load initial data
   useEffect(() => {
     const initializeData = async () => {
@@ -87,31 +95,11 @@ export default function FilterPage() {
         // Get unique names of claims records
         const uniqueClaimsNames = Array.from(new Set<string>(
           ingestedDataResponseData.records
-            .filter((record: any) => record.type === 'claims')
+            .filter((record: any) => record.type === 'lut')
             .map((record: any) => record.name)
         ));
         setLutNames(uniqueClaimsNames);
-        console.log('Unique Claims Names:', uniqueClaimsNames);
-
-        // Fetch diagnosis codes for each ingested claims record
-        const ingestedClaimsIds = ingestedDataResponseData.records
-          .filter((record: any) => record.type === 'claims')
-          .map((record: any) => record.ingested_data_id);
-
-        if (ingestedClaimsIds.length > 0) {
-          const diagnosisResponse = await fetch('http://localhost:5000/api/filters/diagnosis-codes', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ ingestedIds: ingestedClaimsIds })
-          });
-
-          if (diagnosisResponse.ok) {
-            const diagnosisData = await diagnosisResponse.json();
-            console.log('Diagnosis Codes by Ingested Data:', diagnosisData);
-          }
-        }
+        console.log('Unique LUT Names:', uniqueClaimsNames);
 
         if (claimsData.claims && claimsData.claims.length > 0) {
           setClaims(claimsData.claims)
@@ -796,14 +784,77 @@ export default function FilterPage() {
     });
   }
 
+  const handleDeleteFilter = async (filterName: string) => {
+    if (confirm(`Are you sure you want to delete the filter "${filterName}"?`)) {
+      try {
+        const response = await fetch(`http://localhost:5000/api/filters/saved/${filterName}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to delete filter');
+        }
+
+        // Remove the filter from the local state
+        setSavedFilters(filters => filters.filter(f => f.name !== filterName));
+        if (selectedSavedFilter === filterName) {
+          setSelectedSavedFilter(null);
+        }
+      } catch (error) {
+        console.error('Error deleting filter:', error);
+        setError('Failed to delete filter');
+      }
+    }
+  };
+
+  const handleDeleteAllFilters = async () => {
+    if (confirm('Are you sure you want to delete ALL saved filters? This cannot be undone.')) {
+      try {
+        const response = await fetch('http://localhost:5000/api/filters/saved', {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to delete all filters');
+        }
+
+        // Clear the local state
+        setSavedFilters([]);
+        setSelectedSavedFilter(null);
+      } catch (error) {
+        console.error('Error deleting all filters:', error);
+        setError('Failed to delete all filters');
+      }
+    }
+  };
+
   return (
     <div className="container mx-auto px-4 py-8 bg-background text-foreground">
-      <h1 className="text-3xl font-bold mb-8">Filter Management</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">Filter Builder</h1>
+        <div className="space-x-2">
+          <Button
+            variant="outline"
+            onClick={() => setIsSaveDialogOpen(true)}
+            disabled={!filterKeys[0].children.length}
+          >
+            Save Filter
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleDeleteAllFilters}
+            disabled={!savedFilters.length}
+          >
+            Delete All Filters
+          </Button>
+        </div>
+      </div>
 
       <SavedFiltersSelect
         savedFilters={savedFilters}
         selectedFilter={selectedSavedFilter}
         onFilterSelect={handleLoadFilter}
+        onDeleteFilter={handleDeleteFilter}
       />
 
       <div className="mb-8">
@@ -828,9 +879,7 @@ export default function FilterPage() {
         onDragEnd={handleDragEnd}
         onUpdateKeyColumn={handleUpdateKeyColumn}
         lutNames={lutNames}
-        ingestedIds={ingestedData.records
-          .filter((record: any) => record.type === 'claims')
-          .map((record: any) => record.ingested_data_id)}
+        ingestedIds={ingestedLutIds}
       />
 
       <div className="flex gap-4 mb-8">

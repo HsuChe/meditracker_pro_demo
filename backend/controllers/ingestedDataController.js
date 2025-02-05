@@ -311,10 +311,25 @@ const clearAllIngestions = async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    // First delete all claims data
+    // First, copy all records to the deleted_claims_log
+    await client.query(`
+      INSERT INTO deleted_claims_log (
+        claim_dummy_id, claim_id, line_id, ingestion_id, 
+        deleted_by, deletion_reason, record_data
+      )
+      SELECT 
+        id, claim_id, line_id, ingestion_id,
+        'system', 'Bulk deletion - clear all', row_to_json(claims_dummy)
+      FROM claims_dummy
+    `);
+
+    // Delete LUT entries first due to foreign key constraint
+    await client.query('DELETE FROM lut_entries');
+
+    // Then delete all claims data
     await client.query('DELETE FROM claims_dummy');
     
-    // Then delete all ingestion records
+    // Finally delete all ingestion records
     await client.query('DELETE FROM ingested_data');
     
     await client.query('COMMIT');

@@ -154,27 +154,32 @@ export default function IngestionPage() {
     }
 
     try {
-      const response = await fetch('http://localhost:5000/api/luts', {
+      console.log('Submitting LUT with data:', { name: lutName, data: lutData });
+      
+      const response = await fetch('/api/luts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: lutName.trim(),
-          type: 'MANUAL',
           data: lutData
         })
       });
 
-      if (response.ok) {
-        alert('LUT submitted successfully');
-        setLutName('');
-        setLutData('');
-        setRefreshTrigger(prev => prev + 1);
-      } else {
-        throw new Error('Failed to submit LUT');
+      const responseData = await response.json();
+      
+      if (!response.ok) {
+        console.error('Server error response:', responseData);
+        throw new Error(responseData.details || responseData.error || 'Failed to submit LUT');
       }
+
+      console.log('LUT submission successful:', responseData);
+      alert('LUT submitted successfully');
+      setLutName('');
+      setLutData('');
+      setRefreshTrigger(prev => prev + 1);
     } catch (error) {
-      console.error('Error submitting LUT:', error);
-      alert('Error submitting LUT');
+      console.error('Full error details:', error);
+      alert('Error submitting LUT: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   }, [lutName, lutData]);
 

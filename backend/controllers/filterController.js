@@ -1069,20 +1069,32 @@ const getDiagnosisCodes = async (req, res) => {
   const client = await pool.connect();
   try {
     const { ingestedIds } = req.body;
+    console.log('Received ingestedIds:', ingestedIds);
 
     if (!ingestedIds || !Array.isArray(ingestedIds) || ingestedIds.length === 0) {
       return res.status(400).json({ error: 'Invalid or empty ingested IDs array' });
     }
 
+    // First, verify the ingested data records exist and are of type 'lut'
+    const verifyQuery = `
+      SELECT ingested_data_id, name, type 
+      FROM ingested_data 
+      WHERE ingested_data_id = ANY($1) AND type = 'lut'
+    `;
+    const verifyResult = await client.query(verifyQuery, [ingestedIds]);
+    console.log('Verified LUT records:', verifyResult.rows);
+
     const query = `
-      SELECT DISTINCT cd.diagnosis_code, i.name as ingested_name, i.ingested_data_id
-      FROM claims_dummy cd
-      INNER JOIN ingested_data i ON cd.ingestion_id = i.ingested_data_id
+      SELECT DISTINCT le.value as diagnosis_code, i.name as ingested_name, i.ingested_data_id
+      FROM lut_entries le
+      INNER JOIN ingested_data i ON le.ingestion_id = i.ingested_data_id
       WHERE i.ingested_data_id = ANY($1)
-      ORDER BY i.ingested_data_id, cd.diagnosis_code
+      AND i.type = 'lut'
+      ORDER BY i.ingested_data_id, le.value
     `;
 
     const result = await client.query(query, [ingestedIds]);
+    console.log('Query result rows:', result.rows);
 
     // Group diagnosis codes by ingested data
     const groupedData = result.rows.reduce((acc, row) => {
@@ -1096,6 +1108,8 @@ const getDiagnosisCodes = async (req, res) => {
       return acc;
     }, {});
 
+    console.log('Grouped data:', groupedData);
+
     res.json({
       success: true,
       data: groupedData
@@ -1103,10 +1117,59 @@ const getDiagnosisCodes = async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching diagnosis codes:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   } finally {
     client.release();
   }
+};
+
+const deleteFilter = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        
+        const { name } = req.params;
+        
+        // Delete the filter
+        const result = await client.query(
+            'DELETE FROM saved_filters WHERE name = $1 RETURNING *',
+            [name]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Filter not found' });
+        }
+        
+        await client.query('COMMIT');
+        res.json({ message: 'Filter deleted successfully' });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error deleting filter:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    } finally {
+        client.release();
+    }
+};
+
+const deleteAllFilters = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        
+        // Delete all filters
+        await client.query('DELETE FROM saved_filters');
+        
+        await client.query('COMMIT');
+        res.json({ message: 'All filters deleted successfully' });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error deleting all filters:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    } finally {
+        client.release();
+    }
 };
 
 // Update the exports
@@ -1119,5 +1182,7 @@ module.exports = {
     getClaimsDataTypes,
     savedFilterQueryBuilder,
     runOperatorTests,
-    getDiagnosisCodes
+    getDiagnosisCodes,
+    deleteFilter,
+    deleteAllFilters
 };

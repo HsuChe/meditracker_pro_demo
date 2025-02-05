@@ -16,6 +16,7 @@ import { type FilterCondition } from "../types"
 import { format } from "date-fns"
 import { type DateRange } from "react-day-picker"
 import { operatorNeedsInput, operatorNeedsSecondInput } from '../utils'
+import React from "react"
 
 interface ColumnInfo {
   name: string;
@@ -74,9 +75,11 @@ export function FilterCondition({
   const showValueInput = condition.operator && operatorNeedsInput(condition.operator)
   const showSecondValueInput = condition.operator && operatorNeedsSecondInput(condition.operator)
 
+  // Add a ref to track if we've already fetched the codes
+  const hasFetchedRef = React.useRef(false);
+
   useEffect(() => {
     if (useLUT && condition.column === 'diagnosis_code') {
-      // When LUT is enabled and column is diagnosis_code, set operator to in_list
       onChange({ operator: 'in_list' });
     }
   }, [useLUT, condition.column]);
@@ -84,6 +87,9 @@ export function FilterCondition({
   useEffect(() => {
     const fetchDiagnosisCodes = async () => {
       try {
+        // Only fetch if we haven't already fetched for these IDs
+        if (hasFetchedRef.current) return;
+        
         console.log('Fetching diagnosis codes with IDs:', ingestedIds);
         const response = await fetch('http://localhost:5000/api/filters/diagnosis-codes', {
           method: 'POST',
@@ -99,6 +105,7 @@ export function FilterCondition({
           const result = await response.json();
           console.log('Received diagnosis codes:', result.data);
           setDiagnosisCodes(result.data);
+          hasFetchedRef.current = true;
         }
       } catch (error) {
         console.error('Error fetching diagnosis codes:', error);
@@ -109,6 +116,11 @@ export function FilterCondition({
       fetchDiagnosisCodes();
     }
   }, [useLUT, condition.column, ingestedIds]);
+
+  // Reset the fetch flag if ingestedIds change
+  useEffect(() => {
+    hasFetchedRef.current = false;
+  }, [ingestedIds]);
 
   const {
     attributes,

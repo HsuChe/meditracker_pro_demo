@@ -10,7 +10,9 @@ const {
     loadSavedFilterData,
     savedFilterQueryBuilder,
     runOperatorTests,
-    getDiagnosisCodes
+    getDiagnosisCodes,
+    deleteFilter,
+    deleteAllFilters
 } = require('../controllers/filterController');
 
 // Claims routes
@@ -18,12 +20,14 @@ router.post('/claims', getClaims);  // For filtered data
 router.get('/claims', getClaims);   // For initial load/pagination
 router.get('/claimsDtype', getClaimsDataTypes);
 
-// Add these new routes
+// Filter management routes
 router.post('/save', saveFilter);        // Route to save a filter
 router.get('/saved', getSavedFilters);   // Route to get saved filters
-router.post('/execute', executeFilter);   // Route to execute a filter
+router.delete('/saved/:name', deleteFilter);  // Route to delete a specific filter
+router.delete('/saved', deleteAllFilters);    // Route to delete all filters
 
-// Add this new route
+// Filter execution routes
+router.post('/execute', executeFilter);   // Route to execute a filter
 router.get('/execute/:filterId', async (req, res) => {
     try {
         await savedFilterQueryBuilder(req.params.filterId, req, res);
@@ -35,10 +39,10 @@ router.get('/execute/:filterId', async (req, res) => {
     }
 });
 
-// Add test route
+// Test route
 router.get('/test-operators', runOperatorTests);
 
-// Add new route for diagnosis codes
+// Diagnosis codes route
 router.post('/diagnosis-codes', getDiagnosisCodes);
 
 module.exports = router;
