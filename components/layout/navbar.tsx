@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Menu, X, UserCircle } from "lucide-react"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
@@ -39,8 +40,9 @@ export function Navbar() {
             <NavLink href="/dashboard/cases">Case Management</NavLink>
             <NavLink href="/dashboard/saas">SaaS Dashboard</NavLink>
           </div>
-          <div className="flex items-center">
-            <Link href="/account" className="text-foreground mr-4">
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Link href="/account" className="text-foreground">
               <UserCircle className="h-6 w-6" />
             </Link>
             {isMobile && (

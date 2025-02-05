@@ -462,9 +462,8 @@ export default function AccountPage() {
                         {user.status === "Pending" ? (
                           <Button
                             variant="destructive"
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             size="sm"
-                            className="h-9"
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 h-9"
                             onClick={() => deleteInvitation(user.id)}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />

@@ -4,6 +4,29 @@
 
 @layer base {
   :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 3.9%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
     --background: 220 20% 18%;
     --foreground: 220 10% 95%;
     --card: 220 20% 22%;
@@ -23,7 +46,6 @@
     --border: 220 20% 30%;
     --input: 220 20% 30%;
     --ring: 220 80% 50%;
-    --radius: 0.5rem;
   }
 }
 
@@ -166,8 +188,35 @@
 }
 
 .hero-image {
-  background-color: hsl(220, 50%, 30%);
-  background-image: linear-gradient(135deg, hsl(220, 50%, 30%) 0%, hsl(220, 50%, 20%) 100%);
+  position: relative;
+  background-color: hsl(var(--primary));
+  background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary)) 100%);
+}
+
+.hero-image::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.2));
+  pointer-events: none;
+}
+
+.hero-image > * {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-image h1 {
+  color: white;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.hero-image p {
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 /* Reset and update positioning styles */

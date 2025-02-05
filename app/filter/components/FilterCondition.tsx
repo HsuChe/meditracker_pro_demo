@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { GripVertical, X, Check } from "lucide-react"
+import { GripVertical, X, Check, Calendar as CalendarIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,8 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import { DatePickerWithRange } from "@/components/ui/date-range-picker"
 import { cn } from "@/lib/utils"
-import { type FilterCondition } from "@/app/filter/page"
+import { type FilterCondition } from "../types"
+import { format } from "date-fns"
+import { type DateRange } from "react-day-picker"
+import { operatorNeedsInput, operatorNeedsSecondInput } from '../utils'
 
 interface ColumnInfo {
   name: string;
@@ -42,9 +47,15 @@ export function FilterCondition({
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
   const [useLUT, setUseLUT] = useState(false)
+  const [date, setDate] = useState<Date>()
+  const [dateRange, setDateRange] = useState<DateRange>()
   
   const selectedColumn = availableColumns.find(col => col.name === condition.column)
   const isStringType = selectedColumn?.dataType === 'string'
+  const isDateType = selectedColumn?.dataType === 'date'
+  const isNumberType = selectedColumn?.dataType === 'number'
+  const showValueInput = condition.operator && operatorNeedsInput(condition.operator)
+  const showSecondValueInput = condition.operator && operatorNeedsSecondInput(condition.operator)
 
   const {
     attributes,
@@ -64,6 +75,84 @@ export function FilterCondition({
       setUseLUT(false)
     }
   }, [condition.column, isStringType])
+
+  const renderDateInput = () => {
+    if (showSecondValueInput) {
+      return (
+        <DatePickerWithRange
+          date={dateRange}
+          onDateChange={(range) => {
+            setDateRange(range)
+            onChange({ 
+              value: range?.from ? format(range.from, 'yyyy-MM-dd') : null,
+              secondValue: range?.to ? format(range.to, 'yyyy-MM-dd') : null
+            })
+          }}
+        />
+      )
+    }
+
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            className={cn(
+              "w-full justify-start text-left font-normal",
+              !date && "text-muted-foreground"
+            )}
+          >
+            <CalendarIcon className="mr-2 h-4 w-4" />
+            {date ? format(date, "PPP") : <span>Pick a date</span>}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            selected={date}
+            onSelect={(newDate) => {
+              setDate(newDate || undefined)
+              onChange({ value: newDate ? format(newDate, 'yyyy-MM-dd') : null })
+            }}
+            initialFocus
+          />
+        </PopoverContent>
+      </Popover>
+    )
+  }
+
+  const renderNumberInput = () => {
+    if (showSecondValueInput) {
+      return (
+        <div className="flex gap-2 items-center">
+          <Input
+            type="number"
+            value={condition.value || ''}
+            onChange={(e) => onChange({ value: e.target.value })}
+            placeholder="Min value..."
+            className="flex-1"
+          />
+          <span className="text-sm text-muted-foreground">to</span>
+          <Input
+            type="number"
+            value={condition.secondValue || ''}
+            onChange={(e) => onChange({ secondValue: e.target.value })}
+            placeholder="Max value..."
+            className="flex-1"
+          />
+        </div>
+      )
+    }
+
+    return (
+      <Input
+        type="number"
+        value={condition.value || ''}
+        onChange={(e) => onChange({ value: e.target.value })}
+        placeholder="Enter value..."
+      />
+    )
+  }
 
   return (
     <div 
@@ -141,7 +230,7 @@ export function FilterCondition({
         </SelectContent>
       </Select>
 
-      {condition.column && condition.operator && (
+      {condition.column && condition.operator && showValueInput && (
         <div className="flex-1">
           {useLUT && isStringType ? (
             <Select>
@@ -154,19 +243,21 @@ export function FilterCondition({
                 <SelectItem value="lut3">LUT Value 3</SelectItem>
               </SelectContent>
             </Select>
-          ) : (
-            renderValueInput ? renderValueInput() : (
-              <Input
-                value={condition.value || ''}
-                onChange={(e) => onChange({ value: e.target.value })}
-                placeholder="Enter value..."
-              />
-            )
+          ) : isDateType ? (
+            renderDateInput()
+          ) : isNumberType ? (
+            renderNumberInput()
+          ) : renderValueInput ? renderValueInput() : (
+            <Input
+              value={condition.value || ''}
+              onChange={(e) => onChange({ value: e.target.value })}
+              placeholder="Enter value..."
+            />
           )}
         </div>
       )}
 
-      {isStringType && condition.column && condition.operator && (
+      {isStringType && condition.column && condition.operator && showValueInput && (
         <div className="flex items-center space-x-2">
           <Switch
             id={`use-lut-${id}`}
@@ -184,5 +275,4 @@ export function FilterCondition({
       </Button>
     </div>
   )
-}
-
+} 

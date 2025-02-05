@@ -30,42 +30,42 @@ export default function HomePage() {
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
       {/* Hero Section */}
-      <section className="relative hero-image text-primary-foreground p-responsive">
+      <section className="relative bg-gradient-to-br from-gray-800 via-gray-700 to-gray-800 dark:bg-gradient-to-br dark:from-[hsl(220,50%,30%)] dark:to-[hsl(220,50%,20%)] text-white p-responsive">
         <div className="container mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
             <div className="text-center md:text-left">
-              <h1 className="text-2xl sm:text-3xl md:text-3xl lg:text-4xl font-extrabold tracking-tight mb-4 text-responsive">
+              <h1 className="text-2xl sm:text-3xl md:text-3xl lg:text-4xl font-extrabold tracking-tight mb-4 text-responsive text-white">
                 Welcome to MediTrack Pro
               </h1>
-              <p className="text-sm sm:text-base md:text-lg max-w-3xl mb-6 mx-auto md:mx-0">
+              <p className="text-sm sm:text-base md:text-lg max-w-3xl mb-6 mx-auto md:mx-0 text-gray-100">
                 Advanced Medical Product Management System: Streamline your healthcare data processing, enhance
                 decision-making, and optimize claim management with our cutting-edge platform.
               </p>
               <Link href="/dashboard/saas" passHref>
-                <Button size="lg" variant="secondary" className="hover-effect">
+                <Button size="lg" variant="secondary" className="hover-effect bg-white text-gray-800 hover:bg-gray-100">
                   Explore Dashboard
                 </Button>
               </Link>
             </div>
-            <div className="relative h-64 md:h-full min-h-[300px] bg-primary-foreground/10 rounded-lg overflow-hidden hover-effect">
-              <div className="absolute inset-0 bg-gradient-to-br from-primary-foreground/20 to-transparent"></div>
+            <div className="relative h-64 md:h-full min-h-[300px] bg-gray-700/30 dark:bg-primary-foreground/10 rounded-lg overflow-hidden hover-effect">
+              <div className="absolute inset-0 bg-gradient-to-br from-gray-600/30 to-transparent dark:from-primary-foreground/20 dark:to-transparent"></div>
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="grid grid-cols-2 gap-4 p-4">
-                  <div className="bg-background/90 p-4 rounded-lg shadow-lg">
-                    <Window className="w-8 h-8 mb-2 text-primary" />
-                    <p className="text-sm font-semibold">Medical Records</p>
+                  <div className="bg-white p-4 rounded-lg shadow-lg">
+                    <Window className="w-8 h-8 mb-2 text-gray-800" />
+                    <p className="text-sm font-semibold text-gray-800">Medical Records</p>
                   </div>
-                  <div className="bg-background/90 p-4 rounded-lg shadow-lg">
-                    <FileText className="w-8 h-8 mb-2 text-primary" />
-                    <p className="text-sm font-semibold">Claim Forms</p>
+                  <div className="bg-white p-4 rounded-lg shadow-lg">
+                    <FileText className="w-8 h-8 mb-2 text-gray-800" />
+                    <p className="text-sm font-semibold text-gray-800">Claim Forms</p>
                   </div>
-                  <div className="bg-background/90 p-4 rounded-lg shadow-lg">
-                    <BarChart3 className="w-8 h-8 mb-2 text-primary" />
-                    <p className="text-sm font-semibold">Analytics</p>
+                  <div className="bg-white p-4 rounded-lg shadow-lg">
+                    <BarChart3 className="w-8 h-8 mb-2 text-gray-800" />
+                    <p className="text-sm font-semibold text-gray-800">Analytics</p>
                   </div>
-                  <div className="bg-background/90 p-4 rounded-lg shadow-lg">
-                    <ClipboardList className="w-8 h-8 mb-2 text-primary" />
-                    <p className="text-sm font-semibold">Coding</p>
+                  <div className="bg-white p-4 rounded-lg shadow-lg">
+                    <ClipboardList className="w-8 h-8 mb-2 text-gray-800" />
+                    <p className="text-sm font-semibold text-gray-800">Coding</p>
                   </div>
                 </div>
               </div>

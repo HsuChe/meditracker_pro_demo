@@ -86,7 +86,8 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
     try {
       const params = new URLSearchParams({
         page: pagination.currentPage.toString(),
-        pageSize: pagination.pageSize.toString()
+        pageSize: pagination.pageSize.toString(),
+        type: activeTab === 'csv' ? 'claims' : 'lut'
       });
 
       if (searchFilters.name) {
@@ -99,11 +100,7 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
         params.append('toDate', searchFilters.dateRange.to.toISOString());
       }
 
-      const endpoint = activeTab === 'csv' 
-        ? `http://localhost:5000/api/ingested-data?${params.toString()}`
-        : `http://localhost:5000/api/luts?${params.toString()}`;
-
-      const response = await fetch(endpoint);
+      const response = await fetch(`http://localhost:5000/api/ingested-data?${params.toString()}`);
 
       if (response.ok) {
         const data = await response.json();
@@ -147,11 +144,7 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
 
   const handleView = useCallback(async (id: number, type: string) => {
     try {
-      const endpoint = type === 'LUT' 
-        ? `http://localhost:5000/api/luts/${id}`
-        : `http://localhost:5000/api/ingested-data/${id}`;
-      
-      const response = await fetch(endpoint);
+      const response = await fetch(`http://localhost:5000/api/ingested-data/${id}`);
       if (response.ok) {
         const data = await response.json();
         // Show metadata and entries in a modal
@@ -164,17 +157,13 @@ export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTable
   }, []);
 
   const handleDelete = async (id: number, type: string) => {
-    const message = type === 'LUT' 
+    const message = type === 'lut' 
       ? 'Are you sure you want to delete this LUT and all its entries?'
       : 'Are you sure you want to delete this ingestion and its associated claims?';
 
     if (confirm(message)) {
       try {
-        const endpoint = type === 'LUT'
-          ? `http://localhost:5000/api/luts/${id}`
-          : `http://localhost:5000/api/ingested-data/${id}`;
-
-        const response = await fetch(endpoint, {
+        const response = await fetch(`http://localhost:5000/api/ingested-data/${id}`, {
           method: 'DELETE'
         });
         

@@ -1,326 +1,22 @@
 "use client"
 
-import React from "react"
-import { useState, useEffect } from "react"
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core"
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable"
-import { Button } from "@/components/ui/button"
+import React, { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { FilterCondition } from "@/components/filter-condition"
-import { X, CornerDownRight, List as ListIcon, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react"
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { cn } from "@/lib/utils"
-import { Check } from "lucide-react"
-import DatePicker from "react-datepicker"
-import "react-datepicker/dist/react-datepicker.css"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Textarea } from "@/components/ui/textarea"
-
-// Update interfaces to fix type errors
-interface ClaimRecord {
-  id: string;
-  line_id?: string;
-  claim_id: string;
-  admission_date?: string;
-  allowed_amount?: number;
-  [key: string]: any; // Add index signature to allow dynamic property access
-}
-
-interface ClaimData extends ClaimRecord {
-  claim_id: string;
-  grouped_data: ClaimRecord[];
-}
-
-// Update FilterCondition interface to handle all value types
-interface FilterCondition {
-  id: string;
-  column: string;
-  operator: string;
-  value: string | number | readonly string[] | null;
-  secondValue?: string | number | null;
-  isListValue?: boolean;
-}
-
-interface FilterKey {
-  id: string;
-  keyType: 'main' | 'sub' | null;
-  keyColumn: string;
-  conditions: FilterCondition[];
-  children: FilterKey[];
-}
-
-interface SavedFilter {
-  id: number;
-  name: string;
-  description: string;
-  keyColumns: string[];
-  filterKeys: FilterKey[];
-  run_count?: number;
-  last_run?: string;
-}
-
-// Add this interface for the API response
-interface ClaimsResponse {
-  claims: ClaimData[];
-  statistics: {
-    totalRecords: number;
-    uniqueClaimIds: number;
-    totalAllowedAmount: number;
-    dateRange: {
-      min: string;
-      max: string;
-    };
-  };
-  pagination: {
-    total: number;
-    page: number;
-    limit: number;
-    pages: number;
-  };
-}
-
-// Add this interface for the API response
-interface ColumnTypeResponse {
-  success: boolean;
-  data: Array<{
-    column: string;
-    type: DataType;
-  }>;
-}
-
-interface FilterConditionProps {
-  id: string;
-  condition: FilterCondition;
-  onRemove: (id: string) => void;
-  onChange: (updates: Partial<FilterCondition>) => void;
-  isChild: boolean;
-  availableColumns: ColumnInfo[];
-  operators?: string[];
-  renderValueInput?: () => React.ReactNode;
-}
-
-// Add these type definitions at the top with other interfaces
-type DataType = 'string' | 'number' | 'date' | 'boolean';
-
-interface ColumnInfo {
-  name: string;
-  displayName: string;
-  dataType: DataType;
-}
-
-// Update OPERATORS_BY_TYPE to match backend expectations
-const OPERATORS_BY_TYPE: Record<DataType, string[]> = {
-  string: ['equals', 'contains', 'starts_with', 'ends_with', 'is_null', 'is_not_null'],
-  number: ['equals', 'greater_than', 'less_than', 'between', 'is_null', 'is_not_null'],
-  date: [
-    'equals', 
-    'before', 
-    'after', 
-    'between', 
-    'is_null', 
-    'is_not_null',
-    'days_from_today',
-    'business_days_from_today'
-  ],
-  boolean: ['equals', 'is_null', 'is_not_null']
-};
-
-// Add this utility function at the top of the file, after the imports
-const formatColumnName = (name: string): string => {
-  return name
-    .split('_')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ');
-};
-
-// Add this interface to match the backend's expected condition format
-interface BackendFilterCondition {
-  key: string;
-  column: string;
-  operator: string;
-  value: string | number | readonly string[] | null;
-  secondValue?: string | number | null;
-}
-
-// Add this helper function at the top of the file
-const parseDelimitedInput = (input: string): string[] => {
-  // Try different delimiters
-  const delimiters = [',', ';', '|', '\t'];
-  for (const delimiter of delimiters) {
-    if (input.includes(delimiter)) {
-      return input
-        .split(delimiter)
-        .map(item => item.trim())
-        .filter(item => item.length > 0);
-    }
-  }
-  // If no delimiter found, return as single item
-  return [input.trim()];
-};
-
-// Create a helper function to handle condition checking
-const checkCondition = (value: any, filterValue: any, operator: string, secondValue?: any) => {
-  switch (operator) {
-    case 'equals':
-      return typeof value === 'string' && typeof filterValue === 'string'
-        ? value.toLowerCase() === filterValue.toLowerCase()
-        : value === filterValue;
-    case 'contains':
-      return String(value).toLowerCase().includes(String(filterValue).toLowerCase());
-    case 'starts_with':
-      return String(value).toLowerCase().startsWith(String(filterValue).toLowerCase());
-    case 'ends_with':
-      return String(value).toLowerCase().endsWith(String(filterValue).toLowerCase());
-    case 'is_null':
-      return value === null || value === undefined;
-    case 'is_not_null':
-      return value !== null && value !== undefined;
-    case 'greater_than':
-      return Number(value) > Number(filterValue);
-    case 'less_than':
-      return Number(value) < Number(filterValue);
-    case 'between':
-      return Number(value) >= Number(filterValue) && 
-             Number(value) <= Number(secondValue);
-    case 'before':
-      return new Date(value) < new Date(filterValue);
-    case 'after':
-      return new Date(value) > new Date(filterValue);
-    case 'days_from_today':
-    case 'business_days_from_today': {
-      const days = parseInt(filterValue as string);
-      if (isNaN(days)) return true;
-      
-      const isBusinessDays = operator === 'business_days_from_today';
-      const { start, end } = calculateDateRange(days, isBusinessDays);
-      const recordDate = new Date(value);
-      return recordDate >= start && recordDate < end;
-    }
-    default:
-      return true;
-  }
-};
-
-// Add this helper function at the top of the file
-const calculateDateRange = (days: number, isBusinessDays: boolean): { start: Date; end: Date } => {
-  const end = new Date();
-  const start = new Date();
-
-  if (isBusinessDays) {
-    // Count only business days (Monday-Friday)
-    let businessDays = days;
-    while (businessDays > 0) {
-      start.setDate(start.getDate() - 1);
-      if (start.getDay() !== 0 && start.getDay() !== 6) {
-        businessDays--;
-      }
-    }
-  } else {
-    // Count all days
-    start.setDate(start.getDate() - days);
-  }
-
-  return { start, end };
-};
-
-// Update the groupDataByClaimId function to properly handle duplicates
-const groupDataByClaimId = (data: ClaimData[]): ClaimData[] => {
-  // First, group all records by claim_id
-  const groupedData = data.reduce((acc, record) => {
-    const claimId = record.claim_id;
-    if (!acc[claimId]) {
-      acc[claimId] = [];
-    }
-    acc[claimId].push(record);
-    return acc;
-  }, {} as Record<string, ClaimData[]>);
-
-  // Then transform each group into our desired format
-  return Object.entries(groupedData)
-    .map(([claimId, records]) => {
-      // Sort records to ensure consistent ordering
-      const sortedRecords = records.sort((a: ClaimRecord, b: ClaimRecord) => {
-        // You can add custom sorting logic here if needed
-        // For example, sort by date or line number
-        return (a.line_id || '').localeCompare(b.line_id || '') || 0;
-      });
-
-      // Use first record as main record and rest as grouped_data
-      const [mainRecord, ...otherRecords] = sortedRecords;
-      return {
-        ...mainRecord,
-        grouped_data: otherRecords
-      };
-    })
-    .sort((a, b) => a.claim_id.localeCompare(b.claim_id));
-};
-
-// Update the calculateStatistics function with proper Date handling
-const calculateStatistics = (claims: ClaimData[]) => {
-  const uniqueClaimIds = new Set(claims.map(c => c.claim_id)).size;
-  let totalRecords = 0;
-  let minDate: Date | null = null;
-  let maxDate: Date | null = null;
-  let totalAllowedAmount = 0;
-
-  claims.forEach(claim => {
-    const groupedData = Array.isArray(claim.grouped_data) ? claim.grouped_data : [];
-    totalRecords += groupedData.length;
-
-    groupedData.forEach(record => {
-      if (record.admission_date) {
-        const date = new Date(record.admission_date);
-        if (!isNaN(date.getTime())) {
-          if (!minDate || date < minDate) minDate = date;
-          if (!maxDate || date > maxDate) maxDate = date;
-        }
-      }
-
-      if (record.allowed_amount) {
-        const amount = parseFloat(record.allowed_amount.toString());
-        if (!isNaN(amount)) {
-          totalAllowedAmount += amount;
-        }
-      }
-    });
-  });
-  // Convert dates to strings, handling null values
-  const minDateStr = minDate ? new Date(minDate).toISOString() : null;
-  const maxDateStr = maxDate ? new Date(maxDate).toISOString() : null;
-
-  return {
-    uniqueClaimIds,
-    totalRecords,
-    dateRange: {
-      min: minDateStr,
-      max: maxDateStr
-    },
-    totalAllowedAmount
-  };
-};
+import { Button } from "@/components/ui/button"
+import type { DragEndEvent } from "@dnd-kit/core"
+import { FilterKey, FilterCondition, SavedFilter, ClaimData, Statistics, ColumnInfo, ColumnTypeResponse } from "./types"
+import { formatColumnName } from "./utils"
+import StatisticsPanel from "./components/Statistics"
+import FilterKeys from "./components/FiltersKeys"
+import ClaimsTable from "./components/ClaimsTable"
+import SaveFilterDialog from "./components/SaveFilterDialog"
+import SavedFiltersSelect from "./components/SaveFilterSelect"
 
 export default function FilterPage() {
-  // All state hooks first
+  // State declarations
   const [filterName, setFilterName] = useState("")
+  const [filterDescription, setFilterDescription] = useState("")
   const [filterKeys, setFilterKeys] = useState<FilterKey[]>([{
     id: "root",
     keyType: null,
@@ -349,85 +45,38 @@ export default function FilterPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [totalRecords, setTotalRecords] = useState(0)
-  const [statistics, setStatistics] = useState<{
-    uniqueClaimIds: number;
-    dateRange: { min: string; max: string } | null;
-    totalAllowedAmount: number;
-    totalRecords: number;
-  } | null>(null)
-  const [isYearOpen, setIsYearOpen] = useState(false)
-  const [isMonthOpen, setIsMonthOpen] = useState(false)
-  const [cachedClaims, setCachedClaims] = useState<ClaimData[]>([])
+  const [statistics, setStatistics] = useState<Statistics | null>(null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false)
-  const [filterDescription, setFilterDescription] = useState("")
 
-  // Move sensors hook here, before any conditional returns
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  )
-
-  // All useEffect hooks next
+  // Load initial data
   useEffect(() => {
-    if (cachedClaims.length > 0) {
-      console.log('Cached Claims Size:', cachedClaims.length);
-      console.log('Memory usage estimation:', 
-        Math.round((JSON.stringify(cachedClaims).length * 2) / 1024 / 1024) + 'MB');
-    }
-  }, [cachedClaims]);
-
-  useEffect(() => {
-    let isMounted = true;
-
     const initializeData = async () => {
       try {
-        setIsLoading(true);
-        
-        // Get the current key column if any
-        const mainKey = filterKeys[0].children[0];
-        const subKey = filterKeys[0].children.find(child => child.keyType === 'sub' && child.keyColumn);
-        const keyColumn = subKey?.keyColumn;
-        
-        // Log the request for debugging
-        console.log('Fetching initial data:', {
-          claimsUrl: 'http://localhost:5000/api/filters/claims',
-          columnTypesUrl: `http://localhost:5000/api/filters/claimsDtype${keyColumn ? `?keyColumn=${keyColumn}` : ''}`
-        });
+        setIsLoading(true)
         
         const [claimsResponse, columnTypesResponse] = await Promise.all([
           fetch(`http://localhost:5000/api/filters/claims?page=1&limit=${pageSize}`),
-          fetch(`http://localhost:5000/api/filters/claimsDtype${keyColumn ? `?keyColumn=${keyColumn}` : ''}`)
-        ]);
+          fetch('http://localhost:5000/api/filters/claimsDtype')
+        ])
 
-        if (!claimsResponse.ok) {
-          throw new Error('Failed to fetch claims data');
-        }
-        if (!columnTypesResponse.ok) {
-          throw new Error('Failed to fetch column types');
+        if (!claimsResponse.ok || !columnTypesResponse.ok) {
+          throw new Error('Failed to fetch initial data')
         }
 
-        const claimsData: ClaimsResponse = await claimsResponse.json();
-        console.log('Received claims data:', claimsData); // Debug log
+        const claimsData = await claimsResponse.json()
+        const columnTypes = await columnTypesResponse.json() as ColumnTypeResponse
 
-        const columnTypes: ColumnTypeResponse = await columnTypesResponse.json();
-
-        if (claimsData.claims && claimsData.claims.length > 0 && isMounted) {
-          setClaims(claimsData.claims);
-          setTotalRecords(claimsData.pagination.total);
+        if (claimsData.claims && claimsData.claims.length > 0) {
+          setClaims(claimsData.claims)
+          setTotalRecords(claimsData.pagination.total)
           setStatistics({
             uniqueClaimIds: claimsData.statistics.uniqueClaimIds,
-            dateRange: {
-              min: claimsData.statistics.dateRange.min,
-              max: claimsData.statistics.dateRange.max,
-            },
+            dateRange: claimsData.statistics.dateRange,
             totalAllowedAmount: claimsData.statistics.totalAllowedAmount,
             totalRecords: claimsData.statistics.totalRecords,
-          });
+          })
 
-          // Set up columns
           const columnInfo: ColumnInfo[] = columnTypes.data
             .map(({ column, type }) => ({
               name: column,
@@ -435,82 +84,51 @@ export default function FilterPage() {
               dataType: type
             }))
             .sort((a, b) => {
-              if (a.name === 'claim_id') return -1;
-              if (b.name === 'claim_id') return 1;
-              if (a.name === 'line_id') return -1;
-              if (b.name === 'line_id') return 1;
-              return a.displayName.localeCompare(b.displayName);
-            });
+              if (a.name === 'claim_id') return -1
+              if (b.name === 'claim_id') return 1
+              if (a.name === 'line_id') return -1
+              if (b.name === 'line_id') return 1
+              return a.displayName.localeCompare(b.displayName)
+            })
 
-          setColumns(columnInfo);
-          setIsInitialized(true);
+          setColumns(columnInfo)
+          setIsInitialized(true)
         }
       } catch (err) {
-        console.error('Error during initialization:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
+        setError(err instanceof Error ? err.message : 'An error occurred')
       } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+        setIsLoading(false)
       }
-    };
+    }
 
-    initializeData();
+    initializeData()
+  }, [])
 
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
+  // Load saved filters
   useEffect(() => {
     const fetchSavedFilters = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/filters/saved');
-        if (!response.ok) {
-          throw new Error('Failed to fetch saved filters');
-        }
-        const data = await response.json();
-        console.log('Raw saved filters data:', data);
-
-        // Transform the data to match SavedFilter interface
-        const transformedFilters: SavedFilter[] = data.filters.map((filter: any) => ({
+        const response = await fetch('http://localhost:5000/api/filters/saved')
+        if (!response.ok) throw new Error('Failed to fetch saved filters')
+        const data = await response.json()
+        setSavedFilters(data.filters.map((filter: any) => ({
           id: filter.filter_id,
           name: filter.name,
           description: filter.description,
           keyColumns: [],
-          filterKeys: [{
-            id: "root",
-            keyType: null,
-            keyColumn: "",
-            conditions: [],
-            children: [{
-              id: "group1",
-              keyType: 'main',
-              keyColumn: 'claim_id',
-              conditions: [{
-                id: "condition1",
-                column: "",
-                operator: "equals",
-                value: null
-              }],
-              children: []
-            }]
-          }],
+          filterKeys: filter.filterKeys,
           run_count: filter.run_count,
           last_run: filter.last_run
-        }));
-
-        console.log('Transformed filters:', transformedFilters);
-        setSavedFilters(transformedFilters);
+        })))
       } catch (error) {
-        console.error('Error fetching saved filters:', error);
+        console.error('Error fetching saved filters:', error)
       }
-    };
+    }
 
-    fetchSavedFilters();
-  }, []);
+    fetchSavedFilters()
+  }, [])
 
-  // Then the conditional return
+  // Early return for initialization
   if (!isInitialized) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -519,15 +137,58 @@ export default function FilterPage() {
     )
   }
 
-  // Add function to infer data type
-  const inferDataType = (value: any): DataType => {
-    if (value instanceof Date) return 'date'
-    if (typeof value === 'boolean') return 'boolean'
-    if (typeof value === 'number') return 'number'
-    return 'string'
+  // Handler functions
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    setFilterKeys((keys) => {
+      const updateKey = (key: FilterKey): FilterKey => {
+        const activeIndex = key.conditions.findIndex((c) => c.id === active.id);
+        const overIndex = key.conditions.findIndex((c) => c.id === over.id);
+
+        if (activeIndex !== -1 && overIndex !== -1) {
+          const newConditions = [...key.conditions];
+          const [movedCondition] = newConditions.splice(activeIndex, 1);
+          newConditions.splice(overIndex, 0, movedCondition);
+          return { ...key, conditions: newConditions };
+        }
+
+        return { ...key, children: key.children.map(updateKey) };
+      };
+
+      return keys.map(updateKey);
+    });
   }
 
-  const addCondition = (keyId: string) => {
+  const handleUpdateKeyColumn = (keyId: string, column: string) => {
+    setFilterKeys(prevKeys => {
+      const updateKeyInTree = (keys: FilterKey[]): FilterKey[] => {
+        return keys.map(key => {
+          if (key.id === keyId) {
+            return {
+              ...key,
+              keyColumn: column
+            };
+          }
+          if (key.children.length > 0) {
+            return {
+              ...key,
+              children: updateKeyInTree(key.children)
+            };
+          }
+          return key;
+        });
+      };
+
+      return updateKeyInTree(prevKeys);
+    });
+  }
+
+  const handleAddCondition = (keyId: string) => {
     setFilterKeys((keys) => {
       const updateKey = (key: FilterKey): FilterKey => {
         if (key.id === keyId) {
@@ -550,11 +211,10 @@ export default function FilterPage() {
     })
   }
 
-  const removeCondition = (keyId: string, conditionId: string) => {
+  const handleRemoveCondition = (keyId: string, conditionId: string) => {
     setFilterKeys((keys) => {
       const updateKey = (key: FilterKey): FilterKey => {
         if (key.id === keyId) {
-          // Don't remove if it's the last condition
           if (key.conditions.length <= 1) {
             return key;
           }
@@ -570,15 +230,59 @@ export default function FilterPage() {
       };
       return keys.map(updateKey);
     });
-  };
+  }
 
-  const addKey = (parentId: string, keyType: 'main' | 'sub') => {
+  const handleConditionChange = (keyId: string, conditionId: string, updates: Partial<FilterCondition>) => {
+    setFilterKeys(keys => {
+      const updateCondition = (keys: FilterKey[], keyId: string, conditionId: string, updates: Partial<FilterCondition>): FilterKey[] => {
+        return keys.map(key => {
+          if (key.id === keyId) {
+            return {
+              ...key,
+              conditions: key.conditions.map(condition => {
+                if (condition.id === conditionId) {
+                  const updatedCondition = { 
+                    ...condition, 
+                    ...updates,
+                    column: updates.column 
+                      ? columns.find(col => col.displayName === updates.column)?.name || updates.column
+                      : condition.column
+                  };
+                  
+                  const columnInfo = columns.find(col => col.name === updatedCondition.column);
+                  
+                  if (columnInfo) {
+                    if (columnInfo.dataType === 'number' && typeof updatedCondition.value === 'string') {
+                      updatedCondition.value = parseFloat(updatedCondition.value) || null;
+                    } else if (columnInfo.dataType === 'boolean' && typeof updatedCondition.value === 'string') {
+                      updatedCondition.value = updatedCondition.value.toLowerCase();
+                    }
+                  }
+                  
+                  return updatedCondition;
+                }
+                return condition;
+              })
+            };
+          }
+          return {
+            ...key,
+            children: updateCondition(key.children, keyId, conditionId, updates)
+          };
+        });
+      };
+
+      return updateCondition(keys, keyId, conditionId, updates);
+    });
+  }
+
+  const handleAddKey = (parentId: string, keyType: 'main' | 'sub') => {
     setFilterKeys((keys) => {
       const newKeyId = `group${Date.now()}`;
       const newKey: FilterKey = {
         id: newKeyId,
         keyType,
-        keyColumn: keyType === 'main' ? 'claim_id' : '',  // Default for main keys
+        keyColumn: keyType === 'main' ? 'claim_id' : '',
         conditions: [],
         children: []
       };
@@ -598,9 +302,9 @@ export default function FilterPage() {
 
       return keys.map(addKeyToParent);
     });
-  };
+  }
 
-  const removeKey = (keyId: string) => {
+  const handleRemoveKey = (keyId: string) => {
     setFilterKeys((keys) => {
       const removeKeyFromChildren = (children: FilterKey[]): FilterKey[] => {
         return children
@@ -619,689 +323,239 @@ export default function FilterPage() {
     })
   }
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-
-    if (!over || active.id === over.id) {
+  const handleSaveFilter = async () => {
+    if (!filterName) {
+      alert("Please enter a filter name before saving.");
       return;
     }
 
-    setFilterKeys((keys) => {
-      const updateKey = (key: FilterKey): FilterKey => {
-        // Find if this key contains both conditions
-        const activeIndex = key.conditions.findIndex((c) => c.id === active.id);
-        const overIndex = key.conditions.findIndex((c) => c.id === over.id);
+    try {
+      const conditions = filterKeys[0].children.flatMap((mainKey: FilterKey) => {
+        const mainConditions = mainKey.conditions.map((condition: FilterCondition) => ({
+          key: 'Claim Id',
+          column: condition.column,
+          operator: condition.operator,
+          value: condition.value,
+          secondValue: condition.secondValue
+        }));
 
-        if (activeIndex !== -1 && overIndex !== -1) {
-          // Both conditions are in this key, perform the swap
-          const newConditions = [...key.conditions];
-          const [movedCondition] = newConditions.splice(activeIndex, 1);
-          newConditions.splice(overIndex, 0, movedCondition);
-          return { ...key, conditions: newConditions };
-        }
-
-        // If not found in this key, check children
-        return { ...key, children: key.children.map(updateKey) };
-      };
-
-      return keys.map(updateKey);
-    });
-  };
-
-  const updateCondition = (
-    keys: FilterKey[], 
-    keyId: string, 
-    conditionId: string, 
-    updates: Partial<FilterCondition>
-  ): FilterKey[] => {
-    return keys.map(key => {
-      if (key.id === keyId) {
-        return {
-          ...key,
-          conditions: key.conditions.map(condition => {
-            if (condition.id === conditionId) {
-              // For column updates, use the raw column name, not the display name
-              const updatedCondition = { 
-                ...condition, 
-                ...updates,
-                // If we're updating the column, make sure to use the raw name
-                column: updates.column 
-                  ? columns.find(col => col.displayName === updates.column)?.name || updates.column
-                  : condition.column
-              };
-              
-              // Get column info for type checking
-              const columnInfo = columns.find(col => col.name === updatedCondition.column);
-              console.log('Column info for type checking:', {
-                columnName: updatedCondition.column,
-                columnInfo,
-                allColumns: columns
-              });
-              
-              if (columnInfo) {
-                // Convert value based on column type
-                if (columnInfo.dataType === 'number' && typeof updatedCondition.value === 'string') {
-                  updatedCondition.value = parseFloat(updatedCondition.value) || null;
-                } else if (columnInfo.dataType === 'boolean' && typeof updatedCondition.value === 'string') {
-                  updatedCondition.value = updatedCondition.value.toLowerCase();
-                }
-              }
-              
-              return updatedCondition;
-            }
-            return condition;
-          })
-        };
-      }
-      return {
-        ...key,
-        children: key.children.map(child => 
-          updateCondition([child], keyId, conditionId, updates)[0]
-        )
-      };
-    });
-  };
-
-  const handleConditionChange = (keyId: string, conditionId: string, updates: Partial<FilterCondition>) => {
-    console.log('Condition change:', {
-      keyId,
-      conditionId,
-      updates,
-      currentColumns: columns // Log current columns for debugging
-    });
-
-    setFilterKeys(keys => {
-      const newKeys = [...keys];
-      const result = updateCondition(newKeys, keyId, conditionId, updates);
-      console.log('Updated filter keys:', result);
-      return result;
-    });
-  };
-
-  const renderFilterKey = (key: FilterKey, level = 0) => (
-    <div key={key.id} className={`ml-${level * 4}`}>
-      <div className="flex items-center gap-2 mb-2">
-        {/* Show label for all non-root keys */}
-        {key.id !== "root" && (
-          <div className="flex items-center gap-2">
-            {/* Always show arrow for sub keys */}
-            {(level > 0 || key.keyType === 'sub') && (
-              <CornerDownRight className="h-4 w-4 text-muted-foreground mr-2" />
-            )}
-            <span className="text-sm font-medium text-muted-foreground">
-              {key.keyType === 'main' ? 'Main Key: Claim ID' : 'Sub Key: Column'} 
-            </span>
-            {/* Add column selector for sub keys */}
-            {key.keyType === 'sub' && (
-              <Select
-                value={key.keyColumn}
-                onValueChange={(value) => {
-                  console.log('Select value changed:', value);
-                  updateKeyColumn(key.id, value);
-                }}
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Select column">
-                    {columns.find(col => col.name === key.keyColumn)?.displayName || 'Select column'}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {columns.map((col) => (
-                    <SelectItem key={col.name} value={col.name}>
-                      {col.displayName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-        )}
-        {/* Only show Add Condition for non-root keys */}
-        {key.id !== "root" && (
-          <Button variant="outline" size="sm" onClick={() => addCondition(key.id)}>
-            Add Condition
-          </Button>
-        )}
-        {level === 0 && key.children.length === 0 && (
-          <Button variant="outline" size="sm" onClick={() => addKey(key.id, 'main')}>
-            Add Main Key
-          </Button>
-        )}
-        {level > 0 && key.keyType === 'main' && (
-          <Button variant="outline" size="sm" onClick={() => addKey(key.id, 'sub')}>
-            Add Sub Key
-          </Button>
-        )}
-        {key.id !== "root" && (
-          <Button variant="ghost" size="icon" onClick={() => removeKey(key.id)}>
-            <X className="h-4 w-4" />
-          </Button>
-        )}
-      </div>
-
-      {/* Indent conditions for sub keys */}
-      <div className={`${key.keyType === 'sub' ? 'ml-6' : ''}`}>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={key.conditions.map(c => c.id)} strategy={verticalListSortingStrategy}>
-            {key.conditions.map((condition) => renderFilterCondition(condition, key.id))}
-          </SortableContext>
-        </DndContext>
-      </div>
-      {key.children.map((childKey) => renderFilterKey(childKey, level + 1))}
-    </div>
-  )
-
-  // Update the updateKeyColumn function
-  const updateKeyColumn = (keyId: string, column: string) => {
-    console.log('Updating key column:', { keyId, column });
-    
-    setFilterKeys(prevKeys => {
-      const updateKeyInTree = (keys: FilterKey[]): FilterKey[] => {
-        return keys.map(key => {
-          if (key.id === keyId) {
-            console.log('Found key to update:', key);
-            return {
-              ...key,
-              keyColumn: column
-            };
-          }
-          if (key.children.length > 0) {
-            return {
-              ...key,
-              children: updateKeyInTree(key.children)
-            };
-          }
-          return key;
-        });
-      };
-
-      const newKeys = updateKeyInTree(prevKeys);
-      console.log('Updated keys:', newKeys);
-      return newKeys;
-    });
-  };
-
-  const renderFilterCondition = (condition: FilterCondition, keyId: string) => {
-    const selectedColumn = columns.find(col => col.name === condition.column);
-    const operators = selectedColumn ? OPERATORS_BY_TYPE[selectedColumn.dataType] : [];
-
-    const renderValueInput = () => {
-      if (!selectedColumn) return null;
-
-      const isDateType = selectedColumn.dataType === 'date';
-      const isStringType = selectedColumn.dataType === 'string';
-      const isBetweenOperator = condition.operator === 'between';
-      const isDaysFromToday = condition.operator === 'days_from_today' || condition.operator === 'business_days_from_today';
-
-      if (isStringType) {
-        return (
-          <div className="flex flex-col gap-2 w-full">
-            <div className="flex gap-2">
-              <Input
-                type="text"
-                placeholder="Enter value or paste delimited values (comma, tab, semicolon, bar)"
-                className="flex-1"
-                value={condition.isListValue ? '' : (condition.value || '')}
-                onChange={(e) => {
-                  if (!condition.isListValue) {
-                    handleConditionChange(keyId, condition.id, { value: e.target.value });
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && e.currentTarget.value) {
-                    e.preventDefault();
-                    const inputValue = e.currentTarget.value;
-                    const values = parseDelimitedInput(inputValue);
-                    
-                    // If multiple values detected or already in list mode
-                    if (values.length > 1 || condition.isListValue) {
-                      const currentValues = Array.isArray(condition.value) ? condition.value : [];
-                      const updatedValues = [...currentValues, ...values];
-                      handleConditionChange(keyId, condition.id, { 
-                        isListValue: true,
-                        value: updatedValues 
-                      });
-                    } else {
-                      // Single value, keep in normal mode
-                      handleConditionChange(keyId, condition.id, { 
-                        value: values[0] 
-                      });
-                    }
-                    e.currentTarget.value = '';
-                  }
-                }}
-                onPaste={(e) => {
-                  // Don't prevent default to allow the paste to show in input
-                  const pastedText = e.clipboardData.getData('text');
-                  
-                  // If not in list mode, show the pasted text in the input
-                  if (!condition.isListValue) {
-                    handleConditionChange(keyId, condition.id, { 
-                      value: pastedText 
-                    });
-                  } else {
-                    // If already in list mode, append the values
-                    const values = parseDelimitedInput(pastedText);
-                    const currentValues = Array.isArray(condition.value) ? condition.value : [];
-                    const updatedValues = [...currentValues, ...values];
-                    handleConditionChange(keyId, condition.id, { 
-                      isListValue: true,
-                      value: updatedValues 
-                    });
-                  }
-                }}
-              />
-              {condition.isListValue && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    handleConditionChange(keyId, condition.id, { 
-                      isListValue: false,
-                      value: null 
-                    });
-                  }}
-                  className="shrink-0"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-            {condition.isListValue && Array.isArray(condition.value) && condition.value.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {condition.value.map((val, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-1 bg-secondary px-2 py-1 rounded-md"
-                  >
-                    <span className="text-sm">{val}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-4 w-4"
-                      onClick={() => {
-                        if (condition.isListValue && Array.isArray(condition.value)) {
-                          const values = condition.value as readonly string[];
-                          const newValues = values.filter((_: string, i: number) => i !== index);
-                          handleConditionChange(keyId, condition.id, { 
-                            value: newValues.length > 0 ? newValues : null,
-                            isListValue: newValues.length > 0
-                          });
-                        }
-                      }}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        const subConditions = mainKey.children.flatMap((subKey: FilterKey) => 
+          subKey.conditions.map((condition: FilterCondition) => ({
+            key: `Sub Key: ${subKey.keyColumn}`,
+            column: condition.column,
+            operator: condition.operator,
+            value: condition.value,
+            secondValue: condition.secondValue
+          }))
         );
-      }
 
-      if (isDateType) {
-        if (isDaysFromToday) {
-          return (
-            <div className="flex gap-2 items-center w-full">
-              <Input
-                type="number"
-                value={condition.value || ''}
-                onChange={(e) => {
-                  const days = parseInt(e.target.value);
-                  if (!isNaN(days)) {
-                    const isBusinessDays = condition.operator === 'business_days_from_today';
-                    const { start, end } = calculateDateRange(days, isBusinessDays);
-                    handleConditionChange(keyId, condition.id, { 
-                      value: days.toString(),
-                      secondValue: start.toISOString() // Store the calculated date
-                    });
-                  }
-                }}
-                placeholder="Enter number of days..."
-                className="flex-1"
-              />
-              {condition.secondValue && (
-                <span className="text-sm text-muted-foreground">
-                  ({new Date(condition.secondValue).toLocaleDateString()})
-                </span>
-              )}
-            </div>
-          );
-        }
-
-        return (
-          <div className="flex gap-2 items-center w-full">
-            <div className="flex-1">
-              <DatePicker
-                selected={condition.value && typeof condition.value === 'string' ? new Date(condition.value) : null}
-                onChange={(date: Date | null) => {
-                  handleConditionChange(keyId, condition.id, { value: date?.toISOString() || null });
-                }}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors"
-                placeholderText="Select date..."
-                dateFormat="yyyy-MM-dd"
-              />
-            </div>
-            {isBetweenOperator && (
-              <>
-                <span className="text-sm text-muted-foreground shrink-0">and</span>
-                <div className="flex-1">
-                  <DatePicker
-                    selected={condition.secondValue ? new Date(condition.secondValue) : null}
-                    onChange={(date: Date | null) => {
-                      handleConditionChange(keyId, condition.id, { secondValue: date?.toISOString() || null });
-                    }}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors"
-                    placeholderText="Select end date..."
-                    dateFormat="yyyy-MM-dd"
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        );
-      }
-
-      if (isBetweenOperator) {
-        return (
-          <div className="flex gap-2 items-center">
-            <Input
-              type={selectedColumn.dataType === 'number' ? 'number' : 'text'}
-              value={condition.value || ''}
-              onChange={(e) => handleConditionChange(keyId, condition.id, { value: e.target.value })}
-              placeholder="Start value..."
-              className="flex-1"
-            />
-            <span className="text-sm text-muted-foreground">and</span>
-            <Input
-              type={selectedColumn.dataType === 'number' ? 'number' : 'text'}
-              value={condition.secondValue || ''}
-              onChange={(e) => handleConditionChange(keyId, condition.id, { secondValue: e.target.value })}
-              placeholder="End value..."
-              className="flex-1"
-            />
-          </div>
-        );
-      }
-
-      // Default input for other types
-      return (
-        <Input
-          type={selectedColumn.dataType === 'number' ? 'number' : 'text'}
-          value={condition.value || ''}
-          onChange={(e) => handleConditionChange(keyId, condition.id, { value: e.target.value })}
-          placeholder="Enter value..."
-        />
-      );
-    };
-
-    return (
-      <FilterCondition
-        key={condition.id}
-        id={condition.id}
-        condition={condition}
-        onRemove={(id) => removeCondition(keyId, id)}
-        onChange={(updates) => {
-          // If column is being changed, reset operator and value
-          if (updates.column && updates.column !== condition.column) {
-            const newColumn = columns.find(col => col.name === updates.column);
-            if (newColumn) {
-              updates.operator = OPERATORS_BY_TYPE[newColumn.dataType][0];
-              updates.value = null;
-              updates.secondValue = null; // Also reset secondValue
-            }
-          }
-          // If operator is being changed to/from between, reset values
-          if (updates.operator && updates.operator !== condition.operator) {
-            if (updates.operator === 'between' || condition.operator === 'between') {
-              updates.value = null;
-              updates.secondValue = null;
-            }
-          }
-          handleConditionChange(keyId, condition.id, updates);
-        }}
-        isChild={false}
-        availableColumns={columns}
-        operators={operators}
-        renderValueInput={renderValueInput}
-      />
-    );
-  };
-
-  // Add filterClientData inside the component
-  const filterClientData = (data: ClaimData[], conditions: BackendFilterCondition[], keyColumn?: string): ClaimData[] => {
-    if (!keyColumn) {
-      return data.filter(record => {
-        return conditions.every(condition => {
-          const value = record[condition.column];
-          return checkCondition(value, condition.value, condition.operator, condition.secondValue);
-        });
+        return [...mainConditions, ...subConditions];
       });
+
+      const payload = {
+        name: filterName,
+        description: filterDescription,
+        conditions: conditions,
+        is_favorite: false,
+        created_by: "system"
+      };
+
+      const response = await fetch('http://localhost:5000/api/filters/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const savedFilter = await response.json();
+
+      const newSavedFilter: SavedFilter = {
+        id: savedFilter.filter_id,
+        name: filterName,
+        description: savedFilter.description || '',
+        keyColumns: [],
+        filterKeys,
+        run_count: savedFilter.run_count,
+        last_run: savedFilter.last_run
+      };
+      
+      setSavedFilters([...savedFilters, newSavedFilter]);
+      setIsSaveDialogOpen(false);
+      setFilterDescription("");
+      
+      alert(`Filter "${filterName}" has been saved with ${savedFilter.matched_claims_count} matching claims.`);
+    } catch (error) {
+      console.error('Error saving filter:', error);
+      alert(error instanceof Error ? error.message : 'Failed to save filter');
     }
+  }
 
-    // Group records by key column
-    const groupedData = data.reduce((acc, record) => {
-      const keyValue = record[keyColumn];
-      if (!acc[keyValue]) {
-        acc[keyValue] = [];
+  const handleLoadFilter = async (filterName: string) => {
+    const filter = savedFilters.find((f) => f.name === filterName);
+    if (!filter) return;
+
+    try {
+      setIsLoading(true);
+      setFilterName(filter.name);
+      setFilterDescription(filter.description || '');
+      setSelectedSavedFilter(filterName);
+
+      const response = await fetch(`http://localhost:5000/api/filters/execute/${filter.id}`);
+
+      if (!response.ok) {
+        throw new Error('Failed to load saved filter data');
       }
-      acc[keyValue].push(record);
-      return acc;
-    }, {} as Record<string, ClaimData[]>);
 
-    // Filter groups that match all conditions
-    const filteredGroups = Object.entries(groupedData).filter(([_, groupRecords]) => {
-      return conditions.every(condition => {
-        return groupRecords.some(record => {
-          const value = record[condition.column];
-          return checkCondition(value, condition.value, condition.operator, condition.secondValue);
-        });
+      const data = await response.json();
+      
+      setClaims(data.claims);
+      setStatistics({
+        uniqueClaimIds: data.statistics.uniqueClaimIds,
+        dateRange: data.statistics.dateRange,
+        totalAllowedAmount: data.statistics.totalAllowedAmount,
+        totalRecords: data.statistics.totalRecords,
       });
-    });
 
-    // Return first record of each group with grouped data attached
-    return filteredGroups.map(([_, records]) => ({
-      ...records[0],
-      grouped_data: records.slice(1)
-    }));
-  };
+      if (data.savedFilterData?.conditions) {
+        const conditions = data.savedFilterData.conditions;
+        
+        const newFilterKeys: FilterKey[] = [{
+          id: "root",
+          keyType: null,
+          keyColumn: "",
+          conditions: [],
+          children: [{
+            id: "group1",
+            keyType: 'main',
+            keyColumn: 'claim_id',
+            conditions: conditions
+              .filter((c: any) => c.key === 'Claim Id')
+              .map((c: any, index: number) => ({
+                id: `condition${index + 1}`,
+                column: c.column,
+                operator: c.operator,
+                value: c.value,
+                secondValue: c.secondValue
+              })),
+            children: []
+          }]
+        }];
 
-  // Update the buildFilterPayload function
-  const buildFilterPayload = (filterKeys: FilterKey[]) => {
-    const conditions: BackendFilterCondition[] = [];
-    
-    // Process filterKeys to build conditions array
-    filterKeys.forEach(rootKey => {
-        rootKey.children.forEach(mainKey => {
-            if (mainKey.keyType === 'main') {
-                // Add main key conditions
-                mainKey.conditions.forEach(condition => {
-                    if (condition.column) { // Only add if column is selected
-                        conditions.push({
-                            key: 'Claim Id',
-                            column: condition.column,
-                            operator: condition.operator,
-                            value: condition.value,
-                            secondValue: condition.secondValue
-                        });
-                    }
-                });
-
-                // Process sub keys if they exist
-                mainKey.children.forEach(subKey => {
-                    if (subKey.keyType === 'sub' && subKey.keyColumn) {
-                        // Add sub key conditions
-                        subKey.conditions.forEach(condition => {
-                            if (condition.column) { // Only add if column is selected
-                                conditions.push({
-                                    key: `Sub Key: ${subKey.keyColumn}`,
-                                    column: condition.column,
-                                    operator: condition.operator,
-                                    value: condition.value,
-                                    secondValue: condition.secondValue
-                                });
-                            }
-                        });
-                    }
-                });
+        const subKeyConditions = conditions.filter((c: any) => c.key.startsWith('Sub Key:'));
+        if (subKeyConditions.length > 0) {
+          const subKeyGroups = subKeyConditions.reduce((acc: any, c: any) => {
+            const keyColumn = c.key.split(': ')[1];
+            if (!acc[keyColumn]) {
+              acc[keyColumn] = [];
             }
-        });
-    });
+            acc[keyColumn].push(c);
+            return acc;
+          }, {});
 
-    return {
+          Object.entries(subKeyGroups).forEach(([keyColumn, conditions], index) => {
+            newFilterKeys[0].children[0].children.push({
+              id: `subgroup${index + 1}`,
+              keyType: 'sub',
+              keyColumn: keyColumn,
+              conditions: (conditions as any[]).map((c, condIndex) => ({
+                id: `subcondition${index + 1}_${condIndex + 1}`,
+                column: c.column,
+                operator: c.operator,
+                value: c.value,
+                secondValue: c.secondValue
+              })),
+              children: []
+            });
+          });
+        }
+
+        setFilterKeys(newFilterKeys);
+      }
+    } catch (error) {
+      console.error('Error loading saved filter:', error);
+      alert(error instanceof Error ? error.message : 'Failed to load filter');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  const handleApplyFilter = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const conditions = filterKeys[0].children.flatMap((mainKey: FilterKey) => {
+        const mainConditions = mainKey.conditions
+          .filter(c => c.column && c.operator)
+          .map(condition => ({
+            key: 'Claim Id',
+            column: condition.column,
+            operator: condition.operator,
+            value: condition.value,
+            secondValue: condition.secondValue
+          }));
+
+        const subConditions = mainKey.children.flatMap((subKey: FilterKey) => 
+          subKey.conditions
+            .filter(c => c.column && c.operator)
+            .map(condition => ({
+              key: `Sub Key: ${subKey.keyColumn}`,
+              column: condition.column,
+              operator: condition.operator,
+              value: condition.value,
+              secondValue: condition.secondValue
+            }))
+        );
+
+        return [...mainConditions, ...subConditions];
+      });
+
+      const payload = {
         name: filterName,
         description: filterDescription,
         conditions: conditions,
         page: page,
         limit: pageSize
-    };
-  };
+      };
 
-  // Update the applyFilter function
-  const applyFilter = async () => {
-    try {
-        setIsLoading(true);
-        setError(null);
+      const response = await fetch('http://localhost:5000/api/filters/claims', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
 
-        // Always build the payload from current filterKeys
-        const payload = buildFilterPayload(filterKeys);
-
-        console.log('Sending filter payload:', JSON.stringify(payload, null, 2));
-
-        // Always use the POST endpoint with current conditions
-        const response = await fetch('http://localhost:5000/api/filters/claims', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || 'Failed to apply filter');
-        }
-
-        const data = await response.json();
-        console.log('Filter response data:', data);
-
-        // Update state with the response data
-        setClaims(data.claims);
-        setTotalRecords(data.pagination.total);
-        setStatistics({
-            uniqueClaimIds: data.statistics.uniqueClaimIds,
-            dateRange: {
-                min: data.statistics.dateRange.min,
-                max: data.statistics.dateRange.max,
-            },
-            totalAllowedAmount: data.statistics.totalAllowedAmount,
-            totalRecords: data.statistics.totalRecords,
-        });
-
-        // Clear any saved filter selection since we're now working with modified conditions
-        setSelectedSavedFilter(null);
-
-    } catch (error) {
-        console.error('Error applying filter:', error);
-        setError(error instanceof Error ? error.message : 'Failed to apply filter');
-    } finally {
-        setIsLoading(false);
-    }
-  };
-
-  // Update handlePageChange function
-  const handlePageChange = async (newPage: number) => {
-    try {
-      setIsLoading(true);
-      
-      // Request the new page of data
-      const response = await fetch(
-        `http://localhost:5000/api/filters/claims?page=${newPage}&limit=${pageSize}`
-      );
-      
       if (!response.ok) {
-        throw new Error('Failed to fetch page');
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to apply filter');
       }
 
-      const data: ClaimsResponse = await response.json();
-      
-      // Debug log
-      console.log('Page change data received:', data);
+      const data = await response.json();
 
-      if (data.claims && data.claims.length > 0) {
-        // Directly set the claims data - it's already in the correct structure
-        setClaims(data.claims);
-        setPage(newPage);
-        setTotalRecords(data.pagination.total);
-        
-        // Update statistics if they're included in the response
-        if (data.statistics) {
-          setStatistics({
-            uniqueClaimIds: data.statistics.uniqueClaimIds,
-            dateRange: {
-              min: data.statistics.dateRange.min,
-              max: data.statistics.dateRange.max,
-            },
-            totalAllowedAmount: data.statistics.totalAllowedAmount,
-            totalRecords: data.statistics.totalRecords,
-          });
-        }
-      }
+      setClaims(data.claims);
+      setStatistics({
+        uniqueClaimIds: data.statistics.uniqueClaimIds,
+        dateRange: data.statistics.dateRange,
+        totalAllowedAmount: data.statistics.totalAllowedAmount,
+        totalRecords: data.statistics.totalRecords,
+      });
+
+      setSelectedSavedFilter(null);
     } catch (error) {
-      console.error('Error changing page:', error);
-      setError(error instanceof Error ? error.message : 'Failed to change page');
+      console.error('Error applying filter:', error);
+      setError(error instanceof Error ? error.message : 'Failed to apply filter');
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
-  // Update handlePageSizeChange function similarly
-  const handlePageSizeChange = async (newSize: number) => {
-    try {
-      setIsLoading(true);
-      const response = await fetch(
-        `http://localhost:5000/api/filters/claims?page=1&limit=${newSize}`
-      );
-      
-      if (!response.ok) {
-        throw new Error('Failed to update page size');
-      }
-
-      const data: ClaimsResponse = await response.json();
-      
-      if (data.claims && data.claims.length > 0) {
-        setClaims(data.claims);
-        setPageSize(newSize);
-        setPage(1);
-        setTotalRecords(data.pagination.total);
-        
-        if (data.statistics) {
-          setStatistics({
-            uniqueClaimIds: data.statistics.uniqueClaimIds,
-            dateRange: {
-              min: data.statistics.dateRange.min,
-              max: data.statistics.dateRange.max,
-            },
-            totalAllowedAmount: data.statistics.totalAllowedAmount,
-            totalRecords: data.statistics.totalRecords,
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error changing page size:', error);
-      setError(error instanceof Error ? error.message : 'Failed to change page size');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const resetFilter = async () => {
+  const handleResetFilter = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      // Reset filter state
       setFilterName("");
       setFilterKeys([{
         id: "root",
@@ -1322,28 +576,19 @@ export default function FilterPage() {
         }]
       }]);
       setSelectedSavedFilter(null);
-
-      // Reset pagination
       setPage(1);
 
-      // Fetch fresh data from backend without any filters
       const response = await fetch(`http://localhost:5000/api/filters/claims?page=1&limit=${pageSize}`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch data');
       }
 
-      const data: ClaimsResponse = await response.json();
-
-      // Update state with fresh data
+      const data = await response.json();
       setClaims(data.claims);
-      setTotalRecords(data.pagination.total);
       setStatistics({
         uniqueClaimIds: data.statistics.uniqueClaimIds,
-        dateRange: {
-          min: data.statistics.dateRange.min,
-          max: data.statistics.dateRange.max,
-        },
+        dateRange: data.statistics.dateRange,
         totalAllowedAmount: data.statistics.totalAllowedAmount,
         totalRecords: data.statistics.totalRecords,
       });
@@ -1354,200 +599,146 @@ export default function FilterPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
-  const handleSaveClick = () => {
-    setIsSaveDialogOpen(true);
-  };
-
-  const saveFilter = async () => {
-    if (!filterName) {
-      alert("Please enter a filter name before saving.");
-      return;
-    }
-
+  const handlePageChange = async (newPage: number) => {
     try {
-      // Transform filterKeys into backend format
-      const conditions = filterKeys[0].children.flatMap(mainKey => {
-        // Get main key conditions
-        const mainConditions = mainKey.conditions.map(condition => ({
-          key: 'Claim Id',
-          column: condition.column,
-          operator: condition.operator,
-          value: condition.value,
-          secondValue: condition.secondValue
-        }));
-
-        // Get sub key conditions
-        const subConditions = mainKey.children.flatMap(subKey => 
-          subKey.conditions.map(condition => ({
-            key: `Sub Key: ${subKey.keyColumn}`,
+      setIsLoading(true);
+      
+      const conditions = filterKeys[0].children.flatMap((mainKey: FilterKey) => {
+        const mainConditions = mainKey.conditions
+          .filter(c => c.column && c.operator)
+          .map(condition => ({
+            key: 'Claim Id',
             column: condition.column,
             operator: condition.operator,
             value: condition.value,
             secondValue: condition.secondValue
-          }))
+          }));
+
+        const subConditions = mainKey.children.flatMap((subKey: FilterKey) => 
+          subKey.conditions
+            .filter(c => c.column && c.operator)
+            .map(condition => ({
+              key: `Sub Key: ${subKey.keyColumn}`,
+              column: condition.column,
+              operator: condition.operator,
+              value: condition.value,
+              secondValue: condition.secondValue
+            }))
         );
 
         return [...mainConditions, ...subConditions];
       });
 
-      // Create payload for backend
       const payload = {
         name: filterName,
         description: filterDescription,
         conditions: conditions,
-        is_favorite: false,
-        created_by: "system"
+        page: newPage,
+        limit: pageSize
       };
 
-      console.log('=== Save Filter Payload ===');
-      console.log('Sending to backend:', JSON.stringify(payload, null, 2));
-
-      // Updated endpoint to match the new route
-      const response = await fetch('http://localhost:5000/api/filters/save', {
+      const response = await fetch('http://localhost:5000/api/filters/claims', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload)
       });
-
-      // Add these logs
-      console.log('Response status:', response.status);
-      const savedFilter = await response.json();
-      console.log('Saved filter response:', savedFilter);
-
-      // Update local state with the returned filter data
-      const newSavedFilter: SavedFilter = {
-        id: savedFilter.filter_id,
-        name: filterName,
-        keyColumns: [],
-        filterKeys,
-        run_count: savedFilter.run_count,
-        last_run: savedFilter.last_run
-      };
-      setSavedFilters([...savedFilters, newSavedFilter]);
       
-      // Close dialog and reset description
-      setIsSaveDialogOpen(false);
-      setFilterDescription("");
-      
-      alert(`Filter "${filterName}" has been saved with ${savedFilter.matched_claims_count} matching claims.`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch page');
+      }
 
+      const data = await response.json();
+      
+      setClaims(data.claims);
+      setPage(newPage);
+      setStatistics({
+        uniqueClaimIds: data.statistics.uniqueClaimIds,
+        dateRange: data.statistics.dateRange,
+        totalAllowedAmount: data.statistics.totalAllowedAmount,
+        totalRecords: data.statistics.totalRecords,
+      });
     } catch (error) {
-      console.error('Error saving filter:', error);
-      alert(error instanceof Error ? error.message : 'Failed to save filter');
+      console.error('Error changing page:', error);
+      setError(error instanceof Error ? error.message : 'Failed to change page');
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }
 
-  const loadSavedFilter = async (filterName: string) => {
-    const filter = savedFilters.find((f) => f.name === filterName);
-    console.log('Loading filter:', filter);
+  const handlePageSizeChange = async (newSize: number) => {
+    try {
+      setIsLoading(true);
 
-    if (filter) {
-        try {
-            setIsLoading(true);
-            setFilterName(filter.name);
-            setFilterDescription(filter.description || '');
-            setSelectedSavedFilter(filterName);
+      const conditions = filterKeys[0].children.flatMap((mainKey: FilterKey) => {
+        const mainConditions = mainKey.conditions
+          .filter(c => c.column && c.operator)
+          .map(condition => ({
+            key: 'Claim Id',
+            column: condition.column,
+            operator: condition.operator,
+            value: condition.value,
+            secondValue: condition.secondValue
+          }));
 
-            const response = await fetch(`http://localhost:5000/api/filters/execute/${filter.id}`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            });
+        const subConditions = mainKey.children.flatMap((subKey: FilterKey) => 
+          subKey.conditions
+            .filter(c => c.column && c.operator)
+            .map(condition => ({
+              key: `Sub Key: ${subKey.keyColumn}`,
+              column: condition.column,
+              operator: condition.operator,
+              value: condition.value,
+              secondValue: condition.secondValue
+            }))
+        );
 
-            if (!response.ok) {
-                throw new Error('Failed to load saved filter data');
-            }
+        return [...mainConditions, ...subConditions];
+      });
 
-            const data = await response.json();
-            
-            // Update claims and statistics
-            setClaims(data.claims);
-            setTotalRecords(data.pagination.total);
-            setStatistics({
-                uniqueClaimIds: data.statistics.uniqueClaimIds,
-                dateRange: {
-                    min: data.statistics.dateRange.min,
-                    max: data.statistics.dateRange.max,
-                },
-                totalAllowedAmount: data.statistics.totalAllowedAmount,
-                totalRecords: data.statistics.totalRecords,
-            });
+      const payload = {
+        name: filterName,
+        description: filterDescription,
+        conditions: conditions,
+        page: 1,
+        limit: newSize
+      };
 
-            // Transform and set filter conditions
-            if (data.savedFilterData?.conditions) {
-                const conditions = data.savedFilterData.conditions;
-                
-                // Transform conditions back into filterKeys structure
-                const newFilterKeys = [{
-                    id: "root",
-                    keyType: null,
-                    keyColumn: "",
-                    conditions: [],
-                    children: [{
-                        id: "group1",
-                        keyType: 'main',
-                        keyColumn: 'claim_id',
-                        conditions: conditions
-                            .filter(c => c.key === 'Claim Id')
-                            .map((c, index) => ({
-                                id: `condition${index + 1}`,
-                                column: c.column,
-                                operator: c.operator,
-                                value: c.value,
-                                secondValue: c.secondValue
-                            })),
-                        children: []
-                    }]
-                }];
+      const response = await fetch('http://localhost:5000/api/filters/claims', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update page size');
+      }
 
-                // Add sub keys if they exist
-                const subKeyConditions = conditions.filter(c => c.key.startsWith('Sub Key:'));
-                if (subKeyConditions.length > 0) {
-                    const subKeyGroups = subKeyConditions.reduce((acc, c) => {
-                        const keyColumn = c.key.split(': ')[1];
-                        if (!acc[keyColumn]) {
-                            acc[keyColumn] = [];
-                        }
-                        acc[keyColumn].push(c);
-                        return acc;
-                    }, {});
-
-                    // Add each sub key group
-                    Object.entries(subKeyGroups).forEach(([keyColumn, conditions], index) => {
-                        newFilterKeys[0].children[0].children.push({
-                            id: `subgroup${index + 1}`,
-                            keyType: 'sub',
-                            keyColumn: keyColumn,
-                            conditions: conditions.map((c, condIndex) => ({
-                                id: `subcondition${index + 1}_${condIndex + 1}`,
-                                column: c.column,
-                                operator: c.operator,
-                                value: c.value,
-                                secondValue: c.secondValue
-                            })),
-                            children: []
-                        });
-                    });
-                }
-
-                setFilterKeys(newFilterKeys);
-            }
-
-        } catch (error) {
-            console.error('Error loading saved filter:', error);
-            alert(error instanceof Error ? error.message : 'Failed to load filter');
-        } finally {
-            setIsLoading(false);
-        }
+      const data = await response.json();
+      
+      setClaims(data.claims);
+      setPageSize(newSize);
+      setPage(1);
+      setStatistics({
+        uniqueClaimIds: data.statistics.uniqueClaimIds,
+        dateRange: data.statistics.dateRange,
+        totalAllowedAmount: data.statistics.totalAllowedAmount,
+        totalRecords: data.statistics.totalRecords,
+      });
+    } catch (error) {
+      console.error('Error changing page size:', error);
+      setError(error instanceof Error ? error.message : 'Failed to change page size');
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }
 
-  const toggleRowExpansion = (claimId: string) => {
+  const handleToggleRowExpansion = (claimId: string) => {
     setExpandedRows(current => {
       const newSet = new Set(current);
       if (newSet.has(claimId)) {
@@ -1557,64 +748,17 @@ export default function FilterPage() {
       }
       return newSet;
     });
-  };
+  }
 
   return (
     <div className="container mx-auto px-4 py-8 bg-background text-foreground">
       <h1 className="text-3xl font-bold mb-8">Filter Management</h1>
 
-      <div className="mb-8">
-        <Label htmlFor="saved-filters">Saved Filters</Label>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              role="combobox"
-              className="w-full justify-between"
-            >
-              {selectedSavedFilter || "Select a saved filter..."}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[300px] p-0">
-            <Command>
-              <CommandInput placeholder="Search filters..." className="h-9" />
-              <CommandEmpty>No filter found.</CommandEmpty>
-              <CommandGroup>
-                {savedFilters.map((filter) => (
-                  <CommandItem
-                    key={filter.id}
-                    value={filter.name}
-                    onSelect={(value) => {
-                      loadSavedFilter(value)
-                    }}
-                    className="flex flex-col items-start"
-                  >
-                    <div className="flex items-center w-full">
-                      <Check
-                        className={cn(
-                          "mr-2 h-4 w-4",
-                          selectedSavedFilter === filter.name ? "opacity-100" : "opacity-0"
-                        )}
-                      />
-                      <span className="font-medium">{filter.name}</span>
-                    </div>
-                    {filter.description && (
-                      <span className="text-sm text-muted-foreground ml-6">
-                        {filter.description}
-                      </span>
-                    )}
-                    {filter.run_count !== undefined && (
-                      <span className="text-xs text-muted-foreground ml-6">
-                        Run {filter.run_count} times • Last run: {filter.last_run ? new Date(filter.last_run).toLocaleDateString() : 'Never'}
-                      </span>
-                    )}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </Command>
-          </PopoverContent>
-        </Popover>
-      </div>
+      <SavedFiltersSelect
+        savedFilters={savedFilters}
+        selectedFilter={selectedSavedFilter}
+        onFilterSelect={handleLoadFilter}
+      />
 
       <div className="mb-8">
         <Label htmlFor="filter-name">Filter Name</Label>
@@ -1627,249 +771,53 @@ export default function FilterPage() {
         />
       </div>
 
-      <div className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">Filter Conditions</h2>
-        {filterKeys.map((key) => renderFilterKey(key))}
-      </div>
+      <FilterKeys
+        filterKeys={filterKeys}
+        columns={columns}
+        onAddCondition={handleAddCondition}
+        onRemoveCondition={handleRemoveCondition}
+        onAddKey={handleAddKey}
+        onRemoveKey={handleRemoveKey}
+        onConditionChange={handleConditionChange}
+        onDragEnd={handleDragEnd}
+        onUpdateKeyColumn={handleUpdateKeyColumn}
+      />
 
       <div className="flex gap-4 mb-8">
-        <Button onClick={applyFilter}>Apply Filter</Button>
-        <Button variant="outline" onClick={resetFilter}>
+        <Button onClick={handleApplyFilter}>Apply Filter</Button>
+        <Button variant="outline" onClick={handleResetFilter}>
           Reset Filter
         </Button>
-        <Button variant="secondary" onClick={handleSaveClick}>
+        <Button variant="secondary" onClick={() => setIsSaveDialogOpen(true)}>
           Save Filter
         </Button>
       </div>
 
-      {/* Add Statistics Section */}
-      {statistics && (
-        <div className="mb-8">
-          <h2 className="text-2xl font-semibold mb-4">Dataset Statistics</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-4 bg-muted rounded-lg">
-              <div className="text-sm text-muted-foreground mb-2">Unique Claims</div>
-              <div className="text-lg md:text-xl font-bold truncate">
-                {(statistics.uniqueClaimIds || 0).toLocaleString()}
-              </div>
-            </div>
-            <div className="p-4 bg-muted rounded-lg">
-              <div className="text-sm text-muted-foreground mb-2">Date Range</div>
-              <div className="text-lg md:text-xl font-bold truncate">
-                {statistics.dateRange ? (
-                  <>
-                    {new Date(statistics.dateRange.min).toLocaleDateString()} - {new Date(statistics.dateRange.max).toLocaleDateString()}
-                  </>
-                ) : (
-                  'N/A'
-                )}
-              </div>
-            </div>
-            <div className="p-4 bg-muted rounded-lg">
-              <div className="text-sm text-muted-foreground mb-2">Total Allowed Amount</div>
-              <div className="text-lg md:text-xl font-bold truncate">
-                ${(statistics.totalAllowedAmount || 0).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </div>
-            </div>
-            <div className="p-4 bg-muted rounded-lg">
-              <div className="text-sm text-muted-foreground mb-2">Total Records</div>
-              <div className="text-lg md:text-xl font-bold truncate">
-                {(statistics.totalRecords || 0).toLocaleString()}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <StatisticsPanel statistics={statistics} />
 
-      {/* Modified Results Section */}
-      <div>
-        <h2 className="text-2xl font-semibold mb-4">Results</h2>
-        {isLoading ? (
-          <div className="flex justify-center p-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </div>
-        ) : error ? (
-          <div className="text-red-500 p-4">{error}</div>
-        ) : !claims.length ? (
-          <div className="text-center p-8 border rounded-lg bg-muted">
-            <p className="text-muted-foreground">No claims found</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                Showing {claims.length > 0 ? (page - 1) * pageSize + 1 : 0} to {Math.min(page * pageSize, statistics?.uniqueClaimIds || 0)} of {statistics?.uniqueClaimIds || 0} unique claims
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Claims per page:</span>
-                <Select
-                  value={pageSize.toString()}
-                  onValueChange={(value) => handlePageSizeChange(parseInt(value))}
-                >
-                  <SelectTrigger className="w-[70px]">
-                    <SelectValue>{pageSize}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[10, 25, 50, 75, 100].map((size) => (
-                      <SelectItem key={size} value={size.toString()}>
-                        {size}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+      <ClaimsTable
+        claims={claims}
+        columns={columns}
+        page={page}
+        pageSize={pageSize}
+        statistics={statistics}
+        expandedRows={expandedRows}
+        isLoading={isLoading}
+        error={error}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
+        onToggleRowExpansion={handleToggleRowExpansion}
+      />
 
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[30px]"></TableHead>
-                    {columns.map((column) => (
-                      <TableHead key={column.name}>{column.displayName}</TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {claims.map((claim, pageIndex) => {
-                    const isExpanded = expandedRows.has(claim.claim_id);
-                    const groupedData = Array.isArray(claim.grouped_data) ? claim.grouped_data : [];
-                    const firstLineItem = groupedData[0];
-                    const hasGroupedData = groupedData.length > 1;
-                    
-                    return (
-                      <React.Fragment key={`${claim.claim_id}-${pageIndex}`}>
-                        {/* Main row - showing first line item */}
-                        <TableRow>
-                          <TableCell>
-                            {hasGroupedData && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => toggleRowExpansion(claim.claim_id)}
-                                className="h-6 w-6"
-                              >
-                                {isExpanded ? (
-                                  <ChevronDown className="h-4 w-4" />
-                                ) : (
-                                  <ChevronRight className="h-4 w-4" />
-                                )}
-                              </Button>
-                            )}
-                          </TableCell>
-                          {columns.map((column) => (
-                            <TableCell key={column.name}>
-                              {column.name === 'claim_id' 
-                                ? claim.claim_id 
-                                : firstLineItem?.[column.name]?.toString() || '-'}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-
-                        {/* Additional line items when expanded */}
-                        {isExpanded && 
-                         hasGroupedData && 
-                         groupedData.slice(1).map((lineItem, subIndex) => (
-                          <TableRow 
-                            key={`${claim.claim_id}-${pageIndex}-sub-${subIndex}`}
-                            className="bg-muted/50"
-                          >
-                            <TableCell>
-                              <div className="w-6" />
-                            </TableCell>
-                            {columns.map((column) => (
-                              <TableCell key={column.name} className="text-sm">
-                                {column.name === 'claim_id' 
-                                  ? claim.claim_id 
-                                  : lineItem?.[column.name]?.toString() || '-'}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        ))}
-                      </React.Fragment>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <div className="text-sm text-muted-foreground">
-                Page {page} of {Math.ceil((statistics?.uniqueClaimIds || 0) / pageSize)}
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    handlePageChange(Math.max(1, page - 1));
-                  }}
-                  disabled={page === 1}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    handlePageChange(page + 1);
-                  }}
-                  disabled={page * pageSize >= (statistics?.uniqueClaimIds || 0)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Add this Dialog component */}
-      <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Save Filter</DialogTitle>
-            <DialogDescription>
-              Enter a name and description for your filter.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="filter-name" className="text-right">
-                Name
-              </Label>
-              <Input
-                id="filter-name"
-                value={filterName}
-                onChange={(e) => setFilterName(e.target.value)}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="filter-description" className="text-right">
-                Description
-              </Label>
-              <Textarea
-                id="filter-description"
-                value={filterDescription}
-                onChange={(e) => setFilterDescription(e.target.value)}
-                placeholder="Enter a description for your filter..."
-                className="col-span-3"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsSaveDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={saveFilter} disabled={!filterName}>
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SaveFilterDialog
+        open={isSaveDialogOpen}
+        onOpenChange={setIsSaveDialogOpen}
+        filterName={filterName}
+        description={filterDescription}
+        onNameChange={setFilterName}
+        onDescriptionChange={setFilterDescription}
+        onSave={handleSaveFilter}
+      />
     </div>
   )
 }
-
