@@ -25,9 +25,19 @@ import { cn } from "@/lib/utils"
 import { Check } from "lucide-react"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 
 // Update interfaces to fix type errors
 interface ClaimRecord {
+  id: string;
   line_id?: string;
   claim_id: string;
   admission_date?: string;
@@ -45,7 +55,7 @@ interface FilterCondition {
   id: string;
   column: string;
   operator: string;
-  value: string | number | boolean | readonly string[] | null;
+  value: string | number | readonly string[] | null;
   secondValue?: string | number | null;
   isListValue?: boolean;
 }
@@ -59,9 +69,13 @@ interface FilterKey {
 }
 
 interface SavedFilter {
-  name: string
-  keyColumns: string[]
-  filterKeys: FilterKey[]
+  id: number;
+  name: string;
+  description: string;
+  keyColumns: string[];
+  filterKeys: FilterKey[];
+  run_count?: number;
+  last_run?: string;
 }
 
 // Add this interface for the API response
@@ -140,10 +154,11 @@ const formatColumnName = (name: string): string => {
 
 // Add this interface to match the backend's expected condition format
 interface BackendFilterCondition {
+  key: string;
   column: string;
   operator: string;
-  value: string | number | null;
-  secondValue?: string | number;
+  value: string | number | readonly string[] | null;
+  secondValue?: string | number | null;
 }
 
 // Add this helper function at the top of the file
@@ -288,10 +303,9 @@ const calculateStatistics = (claims: ClaimData[]) => {
       }
     });
   });
-
-  // Ensure we have valid dates before calling toISOString
-  const minDateStr = minDate instanceof Date ? minDate.toISOString() : null;
-  const maxDateStr = maxDate instanceof Date ? maxDate.toISOString() : null;
+  // Convert dates to strings, handling null values
+  const minDateStr = minDate ? new Date(minDate).toISOString() : null;
+  const maxDateStr = maxDate ? new Date(maxDate).toISOString() : null;
 
   return {
     uniqueClaimIds,
@@ -345,6 +359,8 @@ export default function FilterPage() {
   const [isMonthOpen, setIsMonthOpen] = useState(false)
   const [cachedClaims, setCachedClaims] = useState<ClaimData[]>([])
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false)
+  const [filterDescription, setFilterDescription] = useState("")
 
   // Move sensors hook here, before any conditional returns
   const sensors = useSensors(
@@ -444,6 +460,54 @@ export default function FilterPage() {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const fetchSavedFilters = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/filters/saved');
+        if (!response.ok) {
+          throw new Error('Failed to fetch saved filters');
+        }
+        const data = await response.json();
+        console.log('Raw saved filters data:', data);
+
+        // Transform the data to match SavedFilter interface
+        const transformedFilters: SavedFilter[] = data.filters.map((filter: any) => ({
+          id: filter.filter_id,
+          name: filter.name,
+          description: filter.description,
+          keyColumns: [],
+          filterKeys: [{
+            id: "root",
+            keyType: null,
+            keyColumn: "",
+            conditions: [],
+            children: [{
+              id: "group1",
+              keyType: 'main',
+              keyColumn: 'claim_id',
+              conditions: [{
+                id: "condition1",
+                column: "",
+                operator: "equals",
+                value: null
+              }],
+              children: []
+            }]
+          }],
+          run_count: filter.run_count,
+          last_run: filter.last_run
+        }));
+
+        console.log('Transformed filters:', transformedFilters);
+        setSavedFilters(transformedFilters);
+      } catch (error) {
+        console.error('Error fetching saved filters:', error);
+      }
+    };
+
+    fetchSavedFilters();
   }, []);
 
   // Then the conditional return
@@ -619,7 +683,7 @@ export default function FilterPage() {
                 if (columnInfo.dataType === 'number' && typeof updatedCondition.value === 'string') {
                   updatedCondition.value = parseFloat(updatedCondition.value) || null;
                 } else if (columnInfo.dataType === 'boolean' && typeof updatedCondition.value === 'string') {
-                  updatedCondition.value = updatedCondition.value.toLowerCase() === 'true';
+                  updatedCondition.value = updatedCondition.value.toLowerCase();
                 }
               }
               
@@ -1043,9 +1107,9 @@ export default function FilterPage() {
     }));
   };
 
-  // When building the filter payload in applyFilter function
-  const buildFilterPayload = (filterKeys) => {
-    const conditions = [];
+  // Update the buildFilterPayload function
+  const buildFilterPayload = (filterKeys: FilterKey[]) => {
+    const conditions: BackendFilterCondition[] = [];
     
     // Process filterKeys to build conditions array
     filterKeys.forEach(rootKey => {
@@ -1053,27 +1117,31 @@ export default function FilterPage() {
             if (mainKey.keyType === 'main') {
                 // Add main key conditions
                 mainKey.conditions.forEach(condition => {
-                    conditions.push({
-                        key: 'Claim Id',
-                        column: condition.column,
-                        operator: condition.operator,
-                        value: condition.value,
-                        secondValue: condition.secondValue
-                    });
+                    if (condition.column) { // Only add if column is selected
+                        conditions.push({
+                            key: 'Claim Id',
+                            column: condition.column,
+                            operator: condition.operator,
+                            value: condition.value,
+                            secondValue: condition.secondValue
+                        });
+                    }
                 });
 
                 // Process sub keys if they exist
                 mainKey.children.forEach(subKey => {
-                    if (subKey.keyType === 'sub') {
+                    if (subKey.keyType === 'sub' && subKey.keyColumn) {
                         // Add sub key conditions
                         subKey.conditions.forEach(condition => {
-                            conditions.push({
-                                key: `Sub Key: ${subKey.keyColumn}`,
-                                column: condition.column,
-                                operator: condition.operator,
-                                value: condition.value,
-                                secondValue: condition.secondValue
-                            });
+                            if (condition.column) { // Only add if column is selected
+                                conditions.push({
+                                    key: `Sub Key: ${subKey.keyColumn}`,
+                                    column: condition.column,
+                                    operator: condition.operator,
+                                    value: condition.value,
+                                    secondValue: condition.secondValue
+                                });
+                            }
                         });
                     }
                 });
@@ -1082,9 +1150,11 @@ export default function FilterPage() {
     });
 
     return {
-        conditions,
-        page: 1,
-        limit: 10
+        name: filterName,
+        description: filterDescription,
+        conditions: conditions,
+        page: page,
+        limit: pageSize
     };
   };
 
@@ -1094,12 +1164,12 @@ export default function FilterPage() {
         setIsLoading(true);
         setError(null);
 
-        // Build the new payload structure
+        // Always build the payload from current filterKeys
         const payload = buildFilterPayload(filterKeys);
 
         console.log('Sending filter payload:', JSON.stringify(payload, null, 2));
 
-        // Change the URL to point to the backend server
+        // Always use the POST endpoint with current conditions
         const response = await fetch('http://localhost:5000/api/filters/claims', {
             method: 'POST',
             headers: {
@@ -1128,6 +1198,9 @@ export default function FilterPage() {
             totalAllowedAmount: data.statistics.totalAllowedAmount,
             totalRecords: data.statistics.totalRecords,
         });
+
+        // Clear any saved filter selection since we're now working with modified conditions
+        setSelectedSavedFilter(null);
 
     } catch (error) {
         console.error('Error applying filter:', error);
@@ -1223,71 +1296,256 @@ export default function FilterPage() {
     }
   };
 
-  const resetFilter = () => {
-    setFilterName("")
-    setFilterKeys([{ 
-      id: "root", 
-      keyType: null,
-      keyColumn: "",
-      conditions: [],
-      children: [{
-        id: "group1",
-        keyType: 'main',
-        keyColumn: 'claim_id',
-        conditions: [{ 
-          id: "condition1", 
-          column: "", 
-          operator: "equals", 
-          value: null 
-        }],
-        children: []
-      }]
-    }])
-    setSelectedSavedFilter(null)
+  const resetFilter = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
 
-    // Reset pagination
-    setPage(1)
-    
-    // Reset display data to first page of cached data
-    const initialPageData = cachedClaims.slice(0, pageSize)
-    setClaims(initialPageData)
-    setTotalRecords(cachedClaims.length)
+      // Reset filter state
+      setFilterName("");
+      setFilterKeys([{
+        id: "root",
+        keyType: null,
+        keyColumn: "",
+        conditions: [],
+        children: [{
+          id: "group1",
+          keyType: 'main',
+          keyColumn: 'claim_id',
+          conditions: [{
+            id: "condition1",
+            column: "",
+            operator: "equals",
+            value: null
+          }],
+          children: []
+        }]
+      }]);
+      setSelectedSavedFilter(null);
 
-    // Reset statistics to original cached data
-    const originalStats = calculateStatistics(cachedClaims)
-    setStatistics({
-      uniqueClaimIds: originalStats.uniqueClaimIds,
-      dateRange: {
-        min: originalStats.dateRange.min || '',
-        max: originalStats.dateRange.max || '',
-      },
-      totalAllowedAmount: originalStats.totalAllowedAmount,
-      totalRecords: originalStats.totalRecords,
-    })
-  }
+      // Reset pagination
+      setPage(1);
 
-  const saveFilter = () => {
-    if (filterName) {
+      // Fetch fresh data from backend without any filters
+      const response = await fetch(`http://localhost:5000/api/filters/claims?page=1&limit=${pageSize}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch data');
+      }
+
+      const data: ClaimsResponse = await response.json();
+
+      // Update state with fresh data
+      setClaims(data.claims);
+      setTotalRecords(data.pagination.total);
+      setStatistics({
+        uniqueClaimIds: data.statistics.uniqueClaimIds,
+        dateRange: {
+          min: data.statistics.dateRange.min,
+          max: data.statistics.dateRange.max,
+        },
+        totalAllowedAmount: data.statistics.totalAllowedAmount,
+        totalRecords: data.statistics.totalRecords,
+      });
+
+    } catch (err) {
+      console.error('Error resetting filter:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while resetting');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSaveClick = () => {
+    setIsSaveDialogOpen(true);
+  };
+
+  const saveFilter = async () => {
+    if (!filterName) {
+      alert("Please enter a filter name before saving.");
+      return;
+    }
+
+    try {
+      // Transform filterKeys into backend format
+      const conditions = filterKeys[0].children.flatMap(mainKey => {
+        // Get main key conditions
+        const mainConditions = mainKey.conditions.map(condition => ({
+          key: 'Claim Id',
+          column: condition.column,
+          operator: condition.operator,
+          value: condition.value,
+          secondValue: condition.secondValue
+        }));
+
+        // Get sub key conditions
+        const subConditions = mainKey.children.flatMap(subKey => 
+          subKey.conditions.map(condition => ({
+            key: `Sub Key: ${subKey.keyColumn}`,
+            column: condition.column,
+            operator: condition.operator,
+            value: condition.value,
+            secondValue: condition.secondValue
+          }))
+        );
+
+        return [...mainConditions, ...subConditions];
+      });
+
+      // Create payload for backend
+      const payload = {
+        name: filterName,
+        description: filterDescription,
+        conditions: conditions,
+        is_favorite: false,
+        created_by: "system"
+      };
+
+      console.log('=== Save Filter Payload ===');
+      console.log('Sending to backend:', JSON.stringify(payload, null, 2));
+
+      // Updated endpoint to match the new route
+      const response = await fetch('http://localhost:5000/api/filters/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      // Add these logs
+      console.log('Response status:', response.status);
+      const savedFilter = await response.json();
+      console.log('Saved filter response:', savedFilter);
+
+      // Update local state with the returned filter data
       const newSavedFilter: SavedFilter = {
+        id: savedFilter.filter_id,
         name: filterName,
         keyColumns: [],
         filterKeys,
-      }
-      setSavedFilters([...savedFilters, newSavedFilter])
-      alert(`Filter "${filterName}" has been saved.`)
-    } else {
-      alert("Please enter a filter name before saving.")
-    }
-  }
+        run_count: savedFilter.run_count,
+        last_run: savedFilter.last_run
+      };
+      setSavedFilters([...savedFilters, newSavedFilter]);
+      
+      // Close dialog and reset description
+      setIsSaveDialogOpen(false);
+      setFilterDescription("");
+      
+      alert(`Filter "${filterName}" has been saved with ${savedFilter.matched_claims_count} matching claims.`);
 
-  const loadSavedFilter = (filterName: string) => {
-    const filter = savedFilters.find((f) => f.name === filterName)
-    if (filter) {
-      setFilterName(filter.name)
-      setFilterKeys(filter.filterKeys)
-      setSelectedSavedFilter(filterName)
+    } catch (error) {
+      console.error('Error saving filter:', error);
+      alert(error instanceof Error ? error.message : 'Failed to save filter');
     }
-  }
+  };
+
+  const loadSavedFilter = async (filterName: string) => {
+    const filter = savedFilters.find((f) => f.name === filterName);
+    console.log('Loading filter:', filter);
+
+    if (filter) {
+        try {
+            setIsLoading(true);
+            setFilterName(filter.name);
+            setFilterDescription(filter.description || '');
+            setSelectedSavedFilter(filterName);
+
+            const response = await fetch(`http://localhost:5000/api/filters/execute/${filter.id}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to load saved filter data');
+            }
+
+            const data = await response.json();
+            
+            // Update claims and statistics
+            setClaims(data.claims);
+            setTotalRecords(data.pagination.total);
+            setStatistics({
+                uniqueClaimIds: data.statistics.uniqueClaimIds,
+                dateRange: {
+                    min: data.statistics.dateRange.min,
+                    max: data.statistics.dateRange.max,
+                },
+                totalAllowedAmount: data.statistics.totalAllowedAmount,
+                totalRecords: data.statistics.totalRecords,
+            });
+
+            // Transform and set filter conditions
+            if (data.savedFilterData?.conditions) {
+                const conditions = data.savedFilterData.conditions;
+                
+                // Transform conditions back into filterKeys structure
+                const newFilterKeys = [{
+                    id: "root",
+                    keyType: null,
+                    keyColumn: "",
+                    conditions: [],
+                    children: [{
+                        id: "group1",
+                        keyType: 'main',
+                        keyColumn: 'claim_id',
+                        conditions: conditions
+                            .filter(c => c.key === 'Claim Id')
+                            .map((c, index) => ({
+                                id: `condition${index + 1}`,
+                                column: c.column,
+                                operator: c.operator,
+                                value: c.value,
+                                secondValue: c.secondValue
+                            })),
+                        children: []
+                    }]
+                }];
+
+                // Add sub keys if they exist
+                const subKeyConditions = conditions.filter(c => c.key.startsWith('Sub Key:'));
+                if (subKeyConditions.length > 0) {
+                    const subKeyGroups = subKeyConditions.reduce((acc, c) => {
+                        const keyColumn = c.key.split(': ')[1];
+                        if (!acc[keyColumn]) {
+                            acc[keyColumn] = [];
+                        }
+                        acc[keyColumn].push(c);
+                        return acc;
+                    }, {});
+
+                    // Add each sub key group
+                    Object.entries(subKeyGroups).forEach(([keyColumn, conditions], index) => {
+                        newFilterKeys[0].children[0].children.push({
+                            id: `subgroup${index + 1}`,
+                            keyType: 'sub',
+                            keyColumn: keyColumn,
+                            conditions: conditions.map((c, condIndex) => ({
+                                id: `subcondition${index + 1}_${condIndex + 1}`,
+                                column: c.column,
+                                operator: c.operator,
+                                value: c.value,
+                                secondValue: c.secondValue
+                            })),
+                            children: []
+                        });
+                    });
+                }
+
+                setFilterKeys(newFilterKeys);
+            }
+
+        } catch (error) {
+            console.error('Error loading saved filter:', error);
+            alert(error instanceof Error ? error.message : 'Failed to load filter');
+        } finally {
+            setIsLoading(false);
+        }
+    }
+  };
 
   const toggleRowExpansion = (claimId: string) => {
     setExpandedRows(current => {
@@ -1317,26 +1575,39 @@ export default function FilterPage() {
               {selectedSavedFilter || "Select a saved filter..."}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-[200px] p-0">
+          <PopoverContent className="w-[300px] p-0">
             <Command>
               <CommandInput placeholder="Search filters..." className="h-9" />
               <CommandEmpty>No filter found.</CommandEmpty>
               <CommandGroup>
                 {savedFilters.map((filter) => (
                   <CommandItem
-                    key={filter.name}
+                    key={filter.id}
                     value={filter.name}
                     onSelect={(value) => {
                       loadSavedFilter(value)
                     }}
+                    className="flex flex-col items-start"
                   >
-                    <Check
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        selectedSavedFilter === filter.name ? "opacity-100" : "opacity-0"
-                      )}
-                    />
-                    {filter.name}
+                    <div className="flex items-center w-full">
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          selectedSavedFilter === filter.name ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      <span className="font-medium">{filter.name}</span>
+                    </div>
+                    {filter.description && (
+                      <span className="text-sm text-muted-foreground ml-6">
+                        {filter.description}
+                      </span>
+                    )}
+                    {filter.run_count !== undefined && (
+                      <span className="text-xs text-muted-foreground ml-6">
+                        Run {filter.run_count} times • Last run: {filter.last_run ? new Date(filter.last_run).toLocaleDateString() : 'Never'}
+                      </span>
+                    )}
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -1366,7 +1637,7 @@ export default function FilterPage() {
         <Button variant="outline" onClick={resetFilter}>
           Reset Filter
         </Button>
-        <Button variant="secondary" onClick={saveFilter}>
+        <Button variant="secondary" onClick={handleSaveClick}>
           Save Filter
         </Button>
       </div>
@@ -1553,6 +1824,51 @@ export default function FilterPage() {
           </div>
         )}
       </div>
+
+      {/* Add this Dialog component */}
+      <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Filter</DialogTitle>
+            <DialogDescription>
+              Enter a name and description for your filter.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="filter-name" className="text-right">
+                Name
+              </Label>
+              <Input
+                id="filter-name"
+                value={filterName}
+                onChange={(e) => setFilterName(e.target.value)}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="filter-description" className="text-right">
+                Description
+              </Label>
+              <Textarea
+                id="filter-description"
+                value={filterDescription}
+                onChange={(e) => setFilterDescription(e.target.value)}
+                placeholder="Enter a description for your filter..."
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsSaveDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={saveFilter} disabled={!filterName}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

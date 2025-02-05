@@ -90,4 +90,37 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_claims_ids') THEN
         CREATE INDEX idx_claims_ids ON saved_filters USING GIN (claims_ids);
     END IF;
-END $$; 
+END $$;
+
+-- Main tables involved in the filter system:
+
+-- 1. The claims table (stores the actual claims data)
+CREATE TABLE claims_dummy (
+    claim_id VARCHAR(255),
+    line_id VARCHAR(255),
+    admission_date DATE,
+    allowed_amount DECIMAL(10,2),
+    -- other claim fields...
+    PRIMARY KEY (claim_id, line_id)
+);
+
+-- 2. Saved filters table (stores filter definitions)
+CREATE TABLE saved_filters (
+    filter_id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT,
+    conditions JSONB NOT NULL,        -- Stores the filter conditions
+    claims_ids JSONB,                 -- Stores matched claim IDs
+    created_by VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Filter execution history table (tracks filter usage)
+CREATE TABLE filter_results_history (
+    history_id SERIAL PRIMARY KEY,
+    filter_id INTEGER REFERENCES saved_filters(filter_id),
+    run_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    matched_claims_count INTEGER,
+    execution_time_ms INTEGER
+); 
