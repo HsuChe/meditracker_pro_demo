@@ -10,40 +10,63 @@ const createLUT = async (req, res) => {
       ? data.split('\n').map(line => line.trim()).filter(Boolean)
       : data;
 
-    // Calculate size
-    const dataString = entries.join('\n');
-    const sizeInBytes = Buffer.byteLength(dataString, 'utf8');
+    // Calculate total size based on entries
+    const sizeInBytes = entries.reduce((total, entry) => total + Buffer.byteLength(entry, 'utf8'), 0);
 
     await client.query('BEGIN');
 
-    // Create LUT record
-    const lutResult = await client.query(
-      `INSERT INTO lookup_tables (name, type, record_count, file_size_bytes)
-       VALUES ($1, $2, $3, $4)
-       RETURNING lut_id`,
-      [name, type, entries.length, sizeInBytes]
+    console.log('Creating ingested_data record...');
+    // Create parent ingestion record
+    const parentResult = await client.query(
+      `INSERT INTO ingested_data 
+       (name, record_count, file_size_bytes, ingestion_date, 
+        activity_status, processing_status, type, batch_number, total_batches)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP, 
+              'active', 'completed', 'lut', 1, 1)
+       RETURNING ingested_data_id`,
+      [name, entries.length, sizeInBytes]
     );
 
-    const lutId = lutResult.rows[0].lut_id;
+    const ingestionId = parentResult.rows[0].ingested_data_id;
+    console.log('Created ingested_data record with ID:', ingestionId);
 
-    // Insert entries
+    // Verify the record exists
+    const verifyResult = await client.query(
+      'SELECT * FROM ingested_data WHERE ingested_data_id = $1',
+      [ingestionId]
+    );
+
+    if (!verifyResult.rows.length) {
+      throw new Error('Failed to create ingested_data record');
+    }
+
+    console.log('Inserting entries into lut_entries...');
+    // Insert entries into lut_entries table
     for (const entry of entries) {
       await client.query(
-        'INSERT INTO lut_entries (lut_id, value) VALUES ($1, $2)',
-        [lutId, entry]
+        `INSERT INTO lut_entries (ingestion_id, value)
+         VALUES ($1, $2)`,
+        [ingestionId, entry]
       );
     }
+    console.log('Successfully inserted all entries');
 
     await client.query('COMMIT');
     res.json({ 
       message: 'LUT created successfully',
-      lut_id: lutId
+      ingestion_id: ingestionId
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error creating LUT:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    // Add more detailed error information
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message,
+      code: error.code,
+      constraint: error.constraint
+    });
   } finally {
     client.release();
   }
@@ -55,33 +78,32 @@ const getLUTs = async (req, res) => {
 
   try {
     let query = `
-      SELECT lt.*, COUNT(le.entry_id) as record_count
-      FROM lookup_tables lt
-      LEFT JOIN lut_entries le ON lt.lut_id = le.lut_id
-      WHERE lt.activity_status = 'active'
+      SELECT *
+      FROM ingested_data
+      WHERE type = 'lut'
+      AND activity_status = 'active'
+      AND parent_ingestion_id IS NULL
     `;
     const params = [];
     let paramCount = 1;
 
     if (name) {
-      query += ` AND lt.name ILIKE $${paramCount}`;
+      query += ` AND name ILIKE $${paramCount}`;
       params.push(`%${name}%`);
       paramCount++;
     }
 
     if (fromDate) {
-      query += ` AND lt.ingestion_date >= $${paramCount}`;
+      query += ` AND ingestion_date >= $${paramCount}`;
       params.push(fromDate);
       paramCount++;
     }
 
     if (toDate) {
-      query += ` AND lt.ingestion_date <= $${paramCount}`;
+      query += ` AND ingestion_date <= $${paramCount}`;
       params.push(toDate);
       paramCount++;
     }
-
-    query += ` GROUP BY lt.lut_id ORDER BY lt.ingestion_date DESC`;
 
     // Get total count
     const countResult = await pool.query(
@@ -90,7 +112,7 @@ const getLUTs = async (req, res) => {
     );
 
     // Get paginated data
-    query += ` LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
+    query += ` ORDER BY ingestion_date DESC LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
     const dataResult = await pool.query(query, [...params, pageSize, offset]);
 
     res.json({
@@ -115,7 +137,7 @@ const getLUTDetails = async (req, res) => {
     
     // Get LUT metadata
     const lutResult = await client.query(
-      'SELECT * FROM lookup_tables WHERE lut_id = $1',
+      'SELECT * FROM ingested_data WHERE ingested_data_id = $1 AND type = \'lut\'',
       [id]
     );
 
@@ -123,15 +145,18 @@ const getLUTDetails = async (req, res) => {
       return res.status(404).json({ error: 'LUT not found' });
     }
 
-    // Get LUT entries
+    // Get LUT entries from lut_entries table
     const entriesResult = await client.query(
-      'SELECT * FROM lut_entries WHERE lut_id = $1 ORDER BY entry_id',
+      'SELECT value FROM lut_entries WHERE ingestion_id = $1 ORDER BY entry_id',
       [id]
     );
 
+    const lut = lutResult.rows[0];
+    const entries = entriesResult.rows.map(row => row.value);
+
     res.json({
-      ...lutResult.rows[0],
-      entries: entriesResult.rows
+      ...lut,
+      entries
     });
 
   } catch (error) {
@@ -147,25 +172,36 @@ const deleteLUT = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Update activity_status to 'deleted' instead of deleting
+    await client.query('BEGIN');
+
+    // Delete entries from lut_entries
+    await client.query(
+      'DELETE FROM lut_entries WHERE ingestion_id = $1',
+      [id]
+    );
+
+    // Then update ingestion record status
     const result = await client.query(
-      `UPDATE lookup_tables 
+      `UPDATE ingested_data 
        SET activity_status = 'deleted'
-       WHERE lut_id = $1
+       WHERE ingested_data_id = $1 AND type = 'lut'
        RETURNING *`,
       [id]
     );
 
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'LUT not found' });
     }
 
+    await client.query('COMMIT');
     res.json({ 
       message: 'LUT marked as deleted successfully',
       lut: result.rows[0]
     });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error marking LUT as deleted:', error);
     res.status(500).json({ error: 'Internal server error' });
   } finally {
@@ -176,12 +212,11 @@ const deleteLUT = async (req, res) => {
 const getDeletedLUTs = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT lt.*, COUNT(le.entry_id) as record_count
-       FROM lookup_tables lt
-       LEFT JOIN lut_entries le ON lt.lut_id = le.lut_id
-       WHERE lt.activity_status = 'deleted'
-       GROUP BY lt.lut_id
-       ORDER BY lt.ingestion_date DESC`
+      `SELECT *
+       FROM ingested_data
+       WHERE type = 'lut'
+       AND activity_status = 'deleted'
+       ORDER BY ingestion_date DESC`
     );
     res.json(result.rows);
   } catch (error) {

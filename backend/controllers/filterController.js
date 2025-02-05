@@ -7,7 +7,7 @@ const CLAIMS_TABLE = process.env.CLAIMS_TABLE || 'claims_dummy';
 const VALID_OPERATORS = new Set([
     'equals', 'contains', 'starts_with', 'ends_with', 
     'is_null', 'is_not_null', 'greater_than', 'less_than',
-    'between', 'before', 'after'
+    'between', 'before', 'after', 'in_list', 'not_in_list'
 ]);
 
 // Helper function to extract WHERE conditions from a query
@@ -68,60 +68,83 @@ const buildWhereClauses = (conditions) => {
 
     console.log('Building where clauses for conditions:', conditions);
 
+    if (!conditions || !Array.isArray(conditions)) {
+        return { clauses, params };
+    }
+
     conditions.forEach(condition => {
         const { column, operator, value, secondValue } = condition;
         
         // Skip if value is null/undefined (unless it's is_null/is_not_null operator)
-        if (value === null && !['is_null', 'is_not_null'].includes(operator)) {
+        if (value === null && !['is_null', 'is_not_null', 'between'].includes(operator)) {
             console.log('Skipping condition with null value:', condition);
             return;
         }
 
         // Don't add parameter for is_null/is_not_null operators
         if (!['is_null', 'is_not_null'].includes(operator)) {
-            params.push(value);
-            const paramIndex = params.length;
-
             // Helper function to determine type casting
             const getTypeCasting = (val) => {
                 if (!isNaN(val) && typeof val !== 'boolean') {
                     return 'numeric';
                 }
+                if (operator === 'before' || operator === 'after' || operator === 'between') {
+                    return 'date';
+                }
                 return 'text';
             };
 
-            const valueType = getTypeCasting(value);
-
             switch(operator) {
                 case 'equals':
-                    clauses.push(`${column}::${valueType} = $${paramIndex}::${valueType}`);
+                    params.push(value);
+                    const valueType = getTypeCasting(value);
+                    clauses.push(`${column}::${valueType} = $${params.length}::${valueType}`);
                     break;
                 case 'contains':
-                    clauses.push(`${column}::text ILIKE '%' || $${paramIndex}::text || '%'`);
+                    params.push(value);
+                    clauses.push(`${column}::text ILIKE '%' || $${params.length}::text || '%'`);
                     break;
                 case 'starts_with':
-                    clauses.push(`${column}::text ILIKE $${paramIndex}::text || '%'`);
+                    params.push(value);
+                    clauses.push(`${column}::text ILIKE $${params.length}::text || '%'`);
                     break;
                 case 'ends_with':
-                    clauses.push(`${column}::text ILIKE '%' || $${paramIndex}::text`);
+                    params.push(value);
+                    clauses.push(`${column}::text ILIKE '%' || $${params.length}::text`);
+                    break;
+                case 'in_list':
+                    const inListValues = String(value).split(/[,;\t|]/).map(v => v.trim()).filter(v => v.length > 0);
+                    params.push(inListValues);
+                    clauses.push(`LOWER(${column}::text) = ANY(SELECT LOWER(UNNEST($${params.length}::text[])))`);
+                    break;
+                case 'not_in_list':
+                    const notInListValues = String(value).split(/[,;\t|]/).map(v => v.trim()).filter(v => v.length > 0);
+                    params.push(notInListValues);
+                    clauses.push(`LOWER(${column}::text) != ALL(SELECT LOWER(UNNEST($${params.length}::text[])))`);
                     break;
                 case 'greater_than':
-                    clauses.push(`${column}::${valueType} > $${paramIndex}::${valueType}`);
+                    params.push(value);
+                    const gtType = getTypeCasting(value);
+                    clauses.push(`${column}::${gtType} > $${params.length}::${gtType}`);
                     break;
                 case 'less_than':
-                    clauses.push(`${column}::${valueType} < $${paramIndex}::${valueType}`);
+                    params.push(value);
+                    const ltType = getTypeCasting(value);
+                    clauses.push(`${column}::${ltType} < $${params.length}::${ltType}`);
                     break;
                 case 'before':
-                    clauses.push(`${column}::date < $${paramIndex}::date`);
+                    params.push(value);
+                    clauses.push(`${column}::date < $${params.length}::date`);
                     break;
                 case 'after':
-                    clauses.push(`${column}::date > $${paramIndex}::date`);
+                    params.push(value);
+                    clauses.push(`${column}::date > $${params.length}::date`);
                     break;
                 case 'between':
-                    const secondValueType = getTypeCasting(secondValue);
-                    clauses.push(`${column}::${valueType} BETWEEN $${paramIndex}::${valueType} AND $${paramIndex + 1}::${secondValueType}`);
-                    if (secondValue !== null) {
-                        params.push(secondValue);
+                    if (value !== null && secondValue !== null) {
+                        params.push(value, secondValue);
+                        const betweenType = getTypeCasting(value);
+                        clauses.push(`${column}::${betweenType} BETWEEN $${params.length - 1}::${betweenType} AND $${params.length}::${betweenType}`);
                     }
                     break;
                 default:
@@ -618,190 +641,28 @@ const calculateStatistics = async (claims) => {
 };
 
 // Helper function to build filter query
-const buildFilterQuery = (mainConditions, subKeyColumn = null, subKeyConditions = []) => {
-    // Add detailed logging for query transformation
-    console.log('\n=== Query Building Process ===');
-    console.log('1. Initial Parameters:', {
-        mainConditions: JSON.stringify(mainConditions, null, 2),
-        subKeyColumn,
-        subKeyConditions: JSON.stringify(subKeyConditions, null, 2)
-    });
-
-    const params = [];
+const buildFilterQuery = (conditions) => {
+    const { clauses, params } = buildWhereClauses(conditions);
     
-    // Helper function to build WHERE clauses
-    const buildWhereClauses = (conditions) => {
-        return conditions.map((condition) => {
-            const { column, operator, value } = condition;
-            
-            // Handle array of values
-            if (Array.isArray(value)) {
-                console.log(`Building array condition for ${column}:`, value);
-                
-                switch(operator) {
-                    case 'equals':
-                        value.forEach(v => params.push(v));
-                        const placeholders = value.map((_, i) => `$${params.length - i}`).reverse();
-                        return `${column}::text = ANY(ARRAY[${placeholders.join(', ')}]::text[])`;
-                    
-                    case 'contains':
-                        const containsClauses = value.map(v => {
-                            params.push(v);
-                            return `${column}::text ILIKE '%' || $${params.length}::text || '%'`;
-                        });
-                        return `(${containsClauses.join(' OR ')})`;
-                    
-                    default:
-                        console.log('Unsupported operator for array values:', operator);
-                        return null;
-                }
-            }
-            
-            // Handle single value
-            params.push(value);
-            const paramNum = params.length;
-            
-            switch(operator) {
-                case 'equals':
-                    return `${column}::text = $${paramNum}::text`;
-                case 'contains':
-                    return `${column}::text ILIKE '%' || $${paramNum}::text || '%'`;
-                case 'starts_with':
-                    return `${column} ILIKE $${paramNum} || '%'`;
-                case 'ends_with':
-                    return `${column} ILIKE '%' || $${paramNum}`;
-                case 'is_null':
-                    return `${column} IS NULL`;
-                case 'is_not_null':
-                    return `${column} IS NOT NULL`;
-                case 'greater_than':
-                    return `${column} > $${paramNum}`;
-                case 'less_than':
-                    return `${column} < $${paramNum}`;
-                case 'before':
-                    return `${column}::date < $${paramNum}::date`;
-                case 'after':
-                    return `${column}::date > $${paramNum}::date`;
-                default:
-                    console.log('Unsupported operator:', operator);
-                    return null;
-            }
-        }).filter(Boolean);
-    };
-
-    // Build main and sub conditions
-    const mainWhereClauses = buildWhereClauses(mainConditions);
-    const subWhereClauses = buildWhereClauses(subKeyConditions);
-
-    console.log('2. Generated Where Clauses:', {
-        mainWhereClauses: mainWhereClauses.join(' AND '),
-        subWhereClauses: subWhereClauses.join(' AND ')
-    });
-
-    // If we have a subKeyColumn, build a hierarchical query
-    if (subKeyColumn) {
-        const mainWhereClause = mainWhereClauses.length > 0 
-            ? `WHERE ${mainWhereClauses.join(' AND ')}` 
-            : '';
-
-        console.log('3. Building Hierarchical Query:', {
-            hasMainConditions: mainWhereClauses.length > 0,
-            hasSubConditions: subWhereClauses.length > 0,
-            mainWhereClause,
-            subKeyColumn
-        });
-
-        const finalQuery = `
-            SELECT c.*, 
-                   jsonb_agg(
-                       jsonb_build_object(
-                           'id', ml.id,
-                           'claim_id', ml.claim_id,
-                           'line_id', ml.line_id,
-                           'patient_id', ml.patient_id,
-                           'date_of_birth', ml.date_of_birth,
-                           'gender', ml.gender,
-                           'provider_id', ml.provider_id,
-                           'facility_id', ml.facility_id,
-                           'diagnosis_code', ml.diagnosis_code,
-                           'procedure_code', ml.procedure_code,
-                           'admission_date', ml.admission_date,
-                           'discharge_date', ml.discharge_date,
-                           'revenue_code', ml.revenue_code,
-                           'modifiers', ml.modifiers,
-                           'claim_type', ml.claim_type,
-                           'total_charges', ml.total_charges,
-                           'allowed_amount', ml.allowed_amount,
-                           'ingestion_id', ml.ingestion_id
-                       )
-                   ) FILTER (WHERE ml.claim_id IS NOT NULL) as grouped_data
-            FROM ${CLAIMS_TABLE} c
-            LEFT JOIN LATERAL (
-                SELECT *
-                FROM ${CLAIMS_TABLE} ml
-                WHERE ml.claim_id = c.claim_id
-                ${subWhereClauses.length > 0 ? 'AND ' + subWhereClauses.join(' AND ') : ''}
-            ) ml ON true
-            ${mainWhereClause}
-            GROUP BY c.id, c.claim_id, c.line_id, c.patient_id, c.date_of_birth,
-                     c.gender, c.provider_id, c.facility_id, c.diagnosis_code,
-                     c.procedure_code, c.admission_date, c.discharge_date,
-                     c.revenue_code, c.modifiers, c.claim_type, c.total_charges,
-                     c.allowed_amount, c.ingestion_id
-            ORDER BY c.claim_id
-        `;
-
-        return { query: finalQuery, params, whereClauses: [...mainWhereClauses, ...subWhereClauses] };
-    }
-
-    // Default non-hierarchical query for main conditions only
-    const whereClause = mainWhereClauses.length > 0 
-        ? `WHERE ${mainWhereClauses.join(' AND ')}` 
-        : '';
-
-    const finalQuery = `
+    const query = `
         SELECT 
-            c.*,
+            c.claim_id,
             jsonb_agg(
-                jsonb_build_object(
-                    'id', c.id,
-                    'claim_id', c.claim_id,
-                    'line_id', c.line_id,
-                    'patient_id', c.patient_id,
-                    'date_of_birth', c.date_of_birth,
-                    'gender', c.gender,
-                    'provider_id', c.provider_id,
-                    'facility_id', c.facility_id,
-                    'diagnosis_code', c.diagnosis_code,
-                    'procedure_code', c.procedure_code,
-                    'admission_date', c.admission_date,
-                    'discharge_date', c.discharge_date,
-                    'revenue_code', c.revenue_code,
-                    'modifiers', c.modifiers,
-                    'claim_type', c.claim_type,
-                    'total_charges', c.total_charges,
-                    'allowed_amount', c.allowed_amount,
-                    'ingestion_id', c.ingestion_id
-                )
+                to_jsonb(c.*)
                 ORDER BY c.line_id
             ) as grouped_data
         FROM ${CLAIMS_TABLE} c
-        ${whereClause}
-        GROUP BY c.id, c.claim_id, c.line_id, c.patient_id, c.date_of_birth,
-                 c.gender, c.provider_id, c.facility_id, c.diagnosis_code,
-                 c.procedure_code, c.admission_date, c.discharge_date,
-                 c.revenue_code, c.modifiers, c.claim_type, c.total_charges,
-                 c.allowed_amount, c.ingestion_id
-        ORDER BY c.claim_id
+        ${clauses.length > 0 ? 'WHERE ' + clauses.join(' AND ') : ''}
+        GROUP BY c.claim_id
     `;
 
-    console.log('Final query:', {
-        sql: finalQuery,
+    console.log('Built filter query:', {
+        query,
         params,
-        paramMapping: params.map((p, i) => `$${i + 1} = ${p}`)
+        conditions
     });
 
-    return { query: finalQuery, params, whereClauses: mainWhereClauses };
+    return { query, params };
 };
 
 // Add this new function after the existing functions
@@ -930,7 +791,8 @@ const getClaims = async (req, res) => {
         // Use the optimized query builder
         const combinedQuery = buildOptimizedCombinedQuery(baseQuery, conditions, limit, offset);
 
-        console.log('Executing optimized combined query...');
+        // Execute the query with parameters
+        console.log('Executing optimized combined query with params:', params);
         const result = await client.query(combinedQuery, params);
         console.log('Query executed successfully');
 

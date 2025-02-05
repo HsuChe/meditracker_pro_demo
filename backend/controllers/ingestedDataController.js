@@ -1,7 +1,7 @@
 const pool = require('../config/db.config');
 
 const getIngestedData = async (req, res) => {
-  const { page = 1, pageSize = 50, name, fromDate, toDate } = req.query;
+  const { page = 1, pageSize = 50, name, fromDate, toDate, type } = req.query;
   const offset = (page - 1) * pageSize;
 
   try {
@@ -14,6 +14,12 @@ const getIngestedData = async (req, res) => {
     
     const countParams = [];
     let paramCount = 1;
+
+    if (type) {
+      countQuery += ` AND i.type = $${paramCount}`;
+      countParams.push(type);
+      paramCount++;
+    }
 
     if (name) {
       countQuery += ` AND i.name ILIKE $${paramCount}`;
@@ -53,6 +59,12 @@ const getIngestedData = async (req, res) => {
     
     const params = [];
     let queryParamCount = 1;
+
+    if (type) {
+      query += ` AND i.type = $${queryParamCount}`;
+      params.push(type);
+      queryParamCount++;
+    }
 
     if (name) {
       query += ` AND i.name ILIKE $${queryParamCount}`;
