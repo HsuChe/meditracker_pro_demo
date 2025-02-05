@@ -8,7 +8,8 @@ const {
     getSavedFilters,
     executeFilter,
     loadSavedFilterData,
-    savedFilterQueryBuilder
+    savedFilterQueryBuilder,
+    runOperatorTests
 } = require('../controllers/filterController');
 
 // Claims routes
@@ -32,5 +33,8 @@ router.get('/execute/:filterId', async (req, res) => {
         });
     }
 });
+
+// Add test route
+router.get('/test-operators', runOperatorTests);
 
 module.exports = router;

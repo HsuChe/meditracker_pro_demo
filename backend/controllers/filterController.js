@@ -3,12 +3,63 @@ const pool = require('../config/db.config');
 const { getAllClaims } = require('../routes/claimRoutes');
 const CLAIMS_TABLE = process.env.CLAIMS_TABLE || 'claims_dummy';
 
-// Update VALID_OPERATORS to match frontend operators
+// Update VALID_OPERATORS to remove date-based operators
 const VALID_OPERATORS = new Set([
     'equals', 'contains', 'starts_with', 'ends_with', 
     'is_null', 'is_not_null', 'greater_than', 'less_than',
     'between', 'before', 'after'
 ]);
+
+// Helper function to extract WHERE conditions from a query
+const extractWhereConditions = (query) => {
+    const whereMatch = query.match(/WHERE\s+(.*?)(?=(?:ORDER BY|GROUP BY|LIMIT|$))/is);
+    return whereMatch ? whereMatch[1].trim() : 'TRUE';
+};
+
+// Optimized query builder that separates statistics collection from data fetching
+const buildOptimizedCombinedQuery = (baseQuery, conditions, limit, offset) => {
+    // First, extract the WHERE clause from baseQuery
+    const whereConditions = extractWhereConditions(baseQuery);
+
+    // Build a more efficient query that avoids unnecessary JSON operations
+    const optimizedQuery = `
+        WITH base_stats AS (
+            -- Get statistics directly from the table, avoiding JSON operations
+            SELECT 
+                COUNT(DISTINCT claim_id) as unique_claims,
+                COUNT(*) as total_records,
+                MIN(admission_date) as min_date,
+                MAX(admission_date) as max_date,
+                SUM(COALESCE(allowed_amount, 0)) as total_amount
+            FROM ${CLAIMS_TABLE}
+            WHERE ${whereConditions}
+        ),
+        paginated_claims AS (
+            -- Your original baseQuery with pagination
+            ${baseQuery}
+            LIMIT ${limit} 
+            OFFSET ${offset}
+        )
+        SELECT 
+            -- Get the statistics
+            json_build_object(
+                'uniqueClaimIds', (SELECT unique_claims FROM base_stats),
+                'totalRecords', (SELECT total_records FROM base_stats),
+                'dateRange', json_build_object(
+                    'min', (SELECT min_date::text FROM base_stats),
+                    'max', (SELECT max_date::text FROM base_stats)
+                ),
+                'totalAllowedAmount', (SELECT total_amount FROM base_stats)
+            ) as statistics,
+            -- Get the paginated claims data
+            COALESCE(
+                (SELECT jsonb_agg(t) FROM paginated_claims t),
+                '[]'::jsonb
+            ) as claims
+    `;
+
+    return optimizedQuery;
+};
 
 // Add this helper function at the top level, before any other functions
 const buildWhereClauses = (conditions) => {
@@ -661,51 +712,44 @@ const buildFilterQuery = (mainConditions, subKeyColumn = null, subKeyConditions 
         });
 
         const finalQuery = `
-            WITH matching_claims AS (
-                -- First find claims that match the main conditions
-                SELECT DISTINCT c1.claim_id
-                FROM ${CLAIMS_TABLE} c1
-                ${mainWhereClause}
-                AND EXISTS (
-                    -- Then ensure it has at least one line item matching sub conditions
-                    SELECT 1
-                    FROM ${CLAIMS_TABLE} c2
-                    WHERE c2.claim_id = c1.claim_id
-                    ${subWhereClauses.length > 0 ? 'AND ' + subWhereClauses.join(' AND ') : ''}
-                )
-            )
-            SELECT 
-                jsonb_build_object(
-                    'data', to_jsonb(c.*),
-                    'children', COALESCE(
-                        jsonb_agg(
-                            jsonb_build_object(
-                                'data', to_jsonb(ml.*)
-                            )
-                        ) FILTER (WHERE ml.claim_id IS NOT NULL),
-                        '[]'::jsonb
-                    )
-                ) as hierarchical_data
+            SELECT c.*, 
+                   jsonb_agg(
+                       jsonb_build_object(
+                           'id', ml.id,
+                           'claim_id', ml.claim_id,
+                           'line_id', ml.line_id,
+                           'patient_id', ml.patient_id,
+                           'date_of_birth', ml.date_of_birth,
+                           'gender', ml.gender,
+                           'provider_id', ml.provider_id,
+                           'facility_id', ml.facility_id,
+                           'diagnosis_code', ml.diagnosis_code,
+                           'procedure_code', ml.procedure_code,
+                           'admission_date', ml.admission_date,
+                           'discharge_date', ml.discharge_date,
+                           'revenue_code', ml.revenue_code,
+                           'modifiers', ml.modifiers,
+                           'claim_type', ml.claim_type,
+                           'total_charges', ml.total_charges,
+                           'allowed_amount', ml.allowed_amount,
+                           'ingestion_id', ml.ingestion_id
+                       )
+                   ) FILTER (WHERE ml.claim_id IS NOT NULL) as grouped_data
             FROM ${CLAIMS_TABLE} c
-            INNER JOIN matching_claims mc ON c.claim_id = mc.claim_id
             LEFT JOIN LATERAL (
                 SELECT *
                 FROM ${CLAIMS_TABLE} ml
                 WHERE ml.claim_id = c.claim_id
                 ${subWhereClauses.length > 0 ? 'AND ' + subWhereClauses.join(' AND ') : ''}
             ) ml ON true
-            GROUP BY c.claim_id, c.*
+            ${mainWhereClause}
+            GROUP BY c.id, c.claim_id, c.line_id, c.patient_id, c.date_of_birth,
+                     c.gender, c.provider_id, c.facility_id, c.diagnosis_code,
+                     c.procedure_code, c.admission_date, c.discharge_date,
+                     c.revenue_code, c.modifiers, c.claim_type, c.total_charges,
+                     c.allowed_amount, c.ingestion_id
             ORDER BY c.claim_id
         `;
-
-        console.log('4. Final Hierarchical Query Structure:', {
-            withClause: 'matching_claims CTE to find parent claims',
-            mainSelect: 'Building hierarchical JSON with parent and children',
-            joins: 'Using INNER JOIN with matching_claims and LEFT JOIN LATERAL for children',
-            grouping: 'Grouped by claim_id and all parent columns',
-            parameters: params,
-            parameterMapping: params.map((p, i) => `$${i + 1} = ${p}`)
-        });
 
         return { query: finalQuery, params, whereClauses: [...mainWhereClauses, ...subWhereClauses] };
     }
@@ -717,20 +761,37 @@ const buildFilterQuery = (mainConditions, subKeyColumn = null, subKeyConditions 
 
     const finalQuery = `
         SELECT 
-            c.claim_id,
-            COALESCE(
-                jsonb_agg(
-                    CASE 
-                        WHEN c.claim_id IS NOT NULL THEN c.*
-                        ELSE NULL
-                    END
-                    ORDER BY c.line_id
-                ) FILTER (WHERE c.claim_id IS NOT NULL),
-                '[]'::jsonb
+            c.*,
+            jsonb_agg(
+                jsonb_build_object(
+                    'id', c.id,
+                    'claim_id', c.claim_id,
+                    'line_id', c.line_id,
+                    'patient_id', c.patient_id,
+                    'date_of_birth', c.date_of_birth,
+                    'gender', c.gender,
+                    'provider_id', c.provider_id,
+                    'facility_id', c.facility_id,
+                    'diagnosis_code', c.diagnosis_code,
+                    'procedure_code', c.procedure_code,
+                    'admission_date', c.admission_date,
+                    'discharge_date', c.discharge_date,
+                    'revenue_code', c.revenue_code,
+                    'modifiers', c.modifiers,
+                    'claim_type', c.claim_type,
+                    'total_charges', c.total_charges,
+                    'allowed_amount', c.allowed_amount,
+                    'ingestion_id', c.ingestion_id
+                )
+                ORDER BY c.line_id
             ) as grouped_data
         FROM ${CLAIMS_TABLE} c
         ${whereClause}
-        GROUP BY c.claim_id
+        GROUP BY c.id, c.claim_id, c.line_id, c.patient_id, c.date_of_birth,
+                 c.gender, c.provider_id, c.facility_id, c.diagnosis_code,
+                 c.procedure_code, c.admission_date, c.discharge_date,
+                 c.revenue_code, c.modifiers, c.claim_type, c.total_charges,
+                 c.allowed_amount, c.ingestion_id
         ORDER BY c.claim_id
     `;
 
@@ -746,57 +807,71 @@ const buildFilterQuery = (mainConditions, subKeyColumn = null, subKeyConditions 
 // Add this new function after the existing functions
 const savedFilterQueryBuilder = async (filterId, req, res) => {
     try {
-        // Update query to get both claims_ids and conditions
+        // Get both claims_ids and conditions from saved filter
         const filterQuery = `
-            SELECT claims_ids, conditions
+            SELECT claims_ids, conditions, name, description, is_favorite, created_by, last_updated
             FROM saved_filters 
             WHERE filter_id = $1
         `;
         const result = await pool.query(filterQuery, [filterId]);
         
-        // Store conditions in the request object
-        const savedFilter = result.rows[0];
-        const conditions = savedFilter.conditions;
-        req.savedFilterConditions = conditions;
+        if (result.rows.length === 0) {
+            throw new Error('Filter not found');
+        }
 
-        // Build query to get claims using those IDs
+        // Get the saved filter data
+        const savedFilter = result.rows[0];
+        const filterConfig = savedFilter.conditions;
         const claimIds = savedFilter.claims_ids;
-        const query = `
-            SELECT 
-                c.claim_id,
-                COALESCE(
-                    jsonb_agg(
-                        CASE 
-                            WHEN c.claim_id IS NOT NULL THEN to_jsonb(c.*)
-                            ELSE NULL
-                        END
-                        ORDER BY c.line_id
-                    ) FILTER (WHERE c.claim_id IS NOT NULL),
-                    '[]'::jsonb
-                ) as grouped_data
-            FROM ${CLAIMS_TABLE} c
-            WHERE c.id = ANY($1::int[])
-            GROUP BY c.claim_id
-            ORDER BY c.claim_id
-        `;
+
+        console.log('Retrieved saved filter:', {
+            filterConfig,
+            claimIds,
+            metadata: {
+                name: savedFilter.name,
+                description: savedFilter.description,
+                is_favorite: savedFilter.is_favorite,
+                created_by: savedFilter.created_by,
+                last_updated: savedFilter.last_updated
+            }
+        });
+
+        // Extract conditions from the saved filter
+        const conditions = filterConfig.originalPayload || 
+                         (Array.isArray(filterConfig) ? filterConfig : []);
+
+        // Build query using the conditions instead of just IDs
+        const { query, params } = buildFilterQuery(conditions);
 
         // Modify req object with our query before passing to getClaims
         req.savedFilterQuery = {
             baseQuery: query,
-            params: [claimIds],
+            params: params,
             page: req.query.page || 1,
             limit: req.query.limit || 10
         };
 
-        // Add conditions to the response data in getClaims
+        // Add conditions and metadata to the response data
         req.savedFilterData = {
-            conditions: conditions
+            filterId,
+            name: savedFilter.name,
+            description: savedFilter.description,
+            is_favorite: savedFilter.is_favorite,
+            created_by: savedFilter.created_by,
+            last_updated: savedFilter.last_updated,
+            conditions: conditions,
+            mainConditions: filterConfig.mainConditions || [],
+            subConditions: filterConfig.subConditions || []
         };
 
         return await getClaims(req, res);
     } catch (err) {
         console.error('Error in savedFilterQueryBuilder:', err);
-        throw err;
+        res.status(500).json({
+            error: 'Error loading saved filter',
+            details: err.message,
+            stack: err.stack
+        });
     }
 };
 
@@ -812,65 +887,90 @@ const getClaims = async (req, res) => {
     const client = await pool.connect();
     try {
         // Get pagination params, ensuring defaults if undefined
-        const page = parseInt(req.savedFilterQuery?.page || req.query.page || 1);
-        const limit = parseInt(req.savedFilterQuery?.limit || req.query.limit || 10);
+        const page = parseInt(req.savedFilterQuery?.page || req.query.page || req.body?.page || 1);
+        const limit = parseInt(req.savedFilterQuery?.limit || req.query.limit || req.body?.limit || 10);
         const offset = (page - 1) * limit;
 
-        // If this is a POST request with conditions, always use those instead of saved filter
-        let query, params;
-        if (req.method === 'POST' && req.body.conditions) {
-            const conditions = req.body.conditions;
-            const { query: baseQuery, params: queryParams } = buildFilterQuery(conditions);
-            query = baseQuery;
+        // Determine which conditions to use
+        let baseQuery, params, isSavedFilter = false;
+        
+        // Check for conditions in both POST body and query params
+        const conditions = req.body.conditions || 
+                         (req.query.conditions ? JSON.parse(req.query.conditions) : null);
+
+        if (conditions) {
+            // Use conditions from either POST or GET
+            const { query: builtQuery, params: queryParams } = buildFilterQuery(conditions);
+            baseQuery = builtQuery;
             params = queryParams;
         } else if (req.savedFilterQuery) {
-            // Fall back to saved filter query if no conditions provided
-            query = req.savedFilterQuery.baseQuery;
+            // Use saved filter query
+            baseQuery = req.savedFilterQuery.baseQuery;
             params = req.savedFilterQuery.params;
+            isSavedFilter = true;
         } else {
             // Default query for initial load
-            query = `
+            baseQuery = `
                 SELECT 
                     c.claim_id,
                     jsonb_agg(
                         to_jsonb(c.*)
+                        ORDER BY c.line_id
                     ) as grouped_data
                 FROM ${CLAIMS_TABLE} c
                 GROUP BY c.claim_id
-                ORDER BY c.claim_id
             `;
             params = [];
         }
 
-        // Add pagination to the query
-        const paginatedQuery = `
-            WITH base_results AS (
-                ${query}
-            )
-            SELECT *
-            FROM base_results
-            LIMIT ${limit} OFFSET ${offset}
-        `;
+        console.log('Using conditions:', conditions);
+        console.log('Base query:', baseQuery);
+        console.log('Parameters:', params);
 
-        // Execute query
-        const results = await client.query(paginatedQuery, params);
+        // Use the optimized query builder
+        const combinedQuery = buildOptimizedCombinedQuery(baseQuery, conditions, limit, offset);
 
-        // Calculate total count
-        let totalCount;
-        if (req.savedFilterQuery && !req.body.conditions) {
-            totalCount = params[0].length;  // Use length of claims_ids array for saved filters
-        } else {
-            const countResult = await client.query('SELECT COUNT(DISTINCT claim_id) FROM claims_dummy');
-            totalCount = parseInt(countResult.rows[0].count);
+        console.log('Executing optimized combined query...');
+        const result = await client.query(combinedQuery, params);
+        console.log('Query executed successfully');
+
+        if (!result.rows || result.rows.length === 0) {
+            console.log('No results found');
+            return res.json({
+                claims: [],
+                statistics: {
+                    uniqueClaimIds: 0,
+                    totalRecords: 0,
+                    dateRange: { min: null, max: null },
+                    totalAllowedAmount: 0
+                },
+                pagination: {
+                    total: 0,
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    pages: 0
+                },
+                savedFilterData: req.savedFilterData
+            });
         }
 
-        // Calculate statistics from the results
-        const stats = calculateStatisticsFromResults(results.rows);
+        const { statistics, claims } = result.rows[0];
+        const totalCount = isSavedFilter && !req.body.conditions && params[0] 
+            ? params[0].length 
+            : parseInt(statistics.uniqueClaimIds || 0);
 
-        // Return response
+        // Return response with exact same structure as before
         res.json({
-            claims: results.rows,
-            statistics: stats,
+            claims: claims || [],
+            statistics: {
+                uniqueClaimIds: parseInt(statistics.uniqueClaimIds),
+                totalRecords: parseInt(statistics.totalRecords),
+                dateRange: {
+                    min: statistics.dateRange.min,
+                    max: statistics.dateRange.max
+                },
+                totalAllowedAmount: parseFloat(statistics.totalAllowedAmount)
+            },
             pagination: {
                 total: totalCount,
                 page: parseInt(page),
@@ -882,60 +982,20 @@ const getClaims = async (req, res) => {
 
     } catch (error) {
         console.error('Error in getClaims:', error);
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            query: error.query,
+            parameters: error.parameters
+        });
         res.status(500).json({ 
             error: 'Internal server error', 
-            details: error.message 
+            details: error.message,
+            stack: error.stack
         });
     } finally {
         client.release();
     }
-};
-
-// Add this helper function to calculate statistics
-const calculateStatisticsFromResults = (claims) => {
-    let uniqueClaimIds = new Set();
-    let totalRecords = 0;
-    let minDate = null;
-    let maxDate = null;
-    let totalAllowedAmount = 0;
-
-    claims.forEach(claim => {
-        // Count unique claim IDs
-        uniqueClaimIds.add(claim.claim_id);
-
-        // Process grouped data
-        const groupedData = claim.grouped_data || [];
-        totalRecords += groupedData.length;
-
-        groupedData.forEach(record => {
-            // Process dates
-            if (record.admission_date) {
-                const date = new Date(record.admission_date);
-                if (!isNaN(date.getTime())) {
-                    if (!minDate || date < minDate) minDate = date;
-                    if (!maxDate || date > maxDate) maxDate = date;
-                }
-            }
-
-            // Process amounts
-            if (record.allowed_amount) {
-                const amount = parseFloat(record.allowed_amount);
-                if (!isNaN(amount)) {
-                    totalAllowedAmount += amount;
-                }
-            }
-        });
-    });
-
-    return {
-        uniqueClaimIds: uniqueClaimIds.size,
-        totalRecords: totalRecords,
-        dateRange: {
-            min: minDate?.toISOString() || null,
-            max: maxDate?.toISOString() || null
-        },
-        totalAllowedAmount: totalAllowedAmount
-    };
 };
 
 // Update this function with the simpler query and parameterized values
@@ -1008,6 +1068,141 @@ const getClaimsDataTypes = async (req, res) => {
     }
 };
 
+// Add test function at the end of the file, before module.exports
+const testOperators = async () => {
+    const client = await pool.connect();
+    try {
+        console.log('=== Testing Filter Operators ===');
+        
+        // Test cases for each operator
+        const testCases = [
+            {
+                name: 'equals',
+                condition: {
+                    column: 'claim_id',
+                    operator: 'equals',
+                    value: '00HUIYNB'
+                }
+            },
+            {
+                name: 'contains',
+                condition: {
+                    column: 'claim_id',
+                    operator: 'contains',
+                    value: 'HUI'
+                }
+            },
+            {
+                name: 'starts_with',
+                condition: {
+                    column: 'claim_id',
+                    operator: 'starts_with',
+                    value: '00'
+                }
+            },
+            {
+                name: 'ends_with',
+                condition: {
+                    column: 'claim_id',
+                    operator: 'ends_with',
+                    value: 'YNB'
+                }
+            },
+            {
+                name: 'is_null',
+                condition: {
+                    column: 'claim_type',
+                    operator: 'is_null',
+                    value: null
+                }
+            },
+            {
+                name: 'is_not_null',
+                condition: {
+                    column: 'claim_id',
+                    operator: 'is_not_null',
+                    value: null
+                }
+            },
+            {
+                name: 'greater_than',
+                condition: {
+                    column: 'allowed_amount',
+                    operator: 'greater_than',
+                    value: '3000'
+                }
+            },
+            {
+                name: 'less_than',
+                condition: {
+                    column: 'allowed_amount',
+                    operator: 'less_than',
+                    value: '5000'
+                }
+            },
+            {
+                name: 'between',
+                condition: {
+                    column: 'allowed_amount',
+                    operator: 'between',
+                    value: '3000',
+                    secondValue: '5000'
+                }
+            },
+            {
+                name: 'before',
+                condition: {
+                    column: 'admission_date',
+                    operator: 'before',
+                    value: '2023-01-01'
+                }
+            },
+            {
+                name: 'after',
+                condition: {
+                    column: 'admission_date',
+                    operator: 'after',
+                    value: '2022-01-01'
+                }
+            }
+        ];
+
+        // Test each operator
+        for (const testCase of testCases) {
+            console.log(`\nTesting operator: ${testCase.name}`);
+            
+            const { query, params } = buildFilterQuery([testCase.condition]);
+            console.log('Query:', query);
+            console.log('Params:', params);
+
+            try {
+                const result = await client.query(query, params);
+                console.log(`Results for ${testCase.name}:`, {
+                    rowCount: result.rows.length,
+                    sampleRow: result.rows[0]
+                });
+            } catch (error) {
+                console.error(`Error testing ${testCase.name}:`, error);
+            }
+        }
+
+    } catch (error) {
+        console.error('Error in operator testing:', error);
+    } finally {
+        client.release();
+    }
+};
+
+// Add route handler for testing
+const runOperatorTests = async (req, res) => {
+    try {
+        await testOperators();
+        res.json({ message: 'Operator tests completed. Check server logs for results.' });
+    } catch (error) {
+        res.status(500).json({ error: 'Error running operator tests', details: error.message });
+    }
+};
+
 // Update the exports
 module.exports = {
     getSavedFilters,
@@ -1017,4 +1212,5 @@ module.exports = {
     getClaimsSchema,
     getClaimsDataTypes,
     savedFilterQueryBuilder,
+    runOperatorTests,
 };
