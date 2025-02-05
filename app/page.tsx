@@ -19,14 +19,6 @@ import {
 import type { ReactNode } from "react"
 
 export default function HomePage() {
-  useEffect(() => {
-    console.log("Client-side render")
-  }, [])
-
-  if (typeof window === "undefined") {
-    console.log("Server-side render")
-  }
-
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
       {/* Hero Section */}

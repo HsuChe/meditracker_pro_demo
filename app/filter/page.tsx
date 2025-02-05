@@ -48,6 +48,7 @@ export default function FilterPage() {
   const [statistics, setStatistics] = useState<Statistics | null>(null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false)
+  const [lutNames, setLutNames] = useState<string[]>([])
 
   // Load initial data
   useEffect(() => {
@@ -55,17 +56,28 @@ export default function FilterPage() {
       try {
         setIsLoading(true)
         
-        const [claimsResponse, columnTypesResponse] = await Promise.all([
+        const [claimsResponse, columnTypesResponse, ingestedDataResponse] = await Promise.all([
           fetch(`http://localhost:5000/api/filters/claims?page=1&limit=${pageSize}`),
-          fetch('http://localhost:5000/api/filters/claimsDtype')
+          fetch('http://localhost:5000/api/filters/claimsDtype'),
+          fetch('http://localhost:5000/api/ingested-data')
         ])
 
-        if (!claimsResponse.ok || !columnTypesResponse.ok) {
+        if (!claimsResponse.ok || !columnTypesResponse.ok || !ingestedDataResponse.ok) {
           throw new Error('Failed to fetch initial data')
         }
 
         const claimsData = await claimsResponse.json()
         const columnTypes = await columnTypesResponse.json() as ColumnTypeResponse
+        const ingestedData = await ingestedDataResponse.json()
+
+        // Get unique names of claims records
+        const uniqueClaimsNames = Array.from(new Set<string>(
+          ingestedData.records
+            .filter((record: any) => record.type === 'claims')
+            .map((record: any) => record.name)
+        ));
+        setLutNames(uniqueClaimsNames);
+        console.log('Unique Claims Names:', uniqueClaimsNames);
 
         if (claimsData.claims && claimsData.claims.length > 0) {
           setClaims(claimsData.claims)
@@ -781,6 +793,7 @@ export default function FilterPage() {
         onConditionChange={handleConditionChange}
         onDragEnd={handleDragEnd}
         onUpdateKeyColumn={handleUpdateKeyColumn}
+        lutNames={lutNames}
       />
 
       <div className="flex gap-4 mb-8">

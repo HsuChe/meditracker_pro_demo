@@ -13,19 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function ThemeToggle() {
-  const { theme, setTheme, resolvedTheme, themes } = useTheme()
-
-  React.useEffect(() => {
-    console.log('Current theme:', theme)
-    console.log('Resolved theme:', resolvedTheme)
-    console.log('Available themes:', themes)
-    console.log('HTML class:', document.documentElement.classList.contains('dark') ? 'dark' : 'light')
-  }, [theme, resolvedTheme, themes])
-
-  const handleThemeChange = (newTheme: string) => {
-    console.log('Changing theme to:', newTheme)
-    setTheme(newTheme)
-  }
+  const { setTheme } = useTheme()
 
   return (
     <DropdownMenu>
@@ -37,13 +25,13 @@ export function ThemeToggle() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => handleThemeChange("light")}>
+        <DropdownMenuItem onClick={() => setTheme("light")}>
           Light
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleThemeChange("dark")}>
+        <DropdownMenuItem onClick={() => setTheme("dark")}>
           Dark
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleThemeChange("system")}>
+        <DropdownMenuItem onClick={() => setTheme("system")}>
           System
         </DropdownMenuItem>
       </DropdownMenuContent>

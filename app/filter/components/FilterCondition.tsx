@@ -32,6 +32,7 @@ interface FilterConditionProps {
   availableColumns: ColumnInfo[];
   operators?: string[];
   renderValueInput?: () => React.ReactNode;
+  lutNames: string[];
 }
 
 export function FilterCondition({
@@ -42,7 +43,8 @@ export function FilterCondition({
   isChild,
   availableColumns,
   operators = [],
-  renderValueInput
+  renderValueInput,
+  lutNames
 }: FilterConditionProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
@@ -158,7 +160,7 @@ export function FilterCondition({
     <div 
       ref={setNodeRef} 
       style={style} 
-      className="flex items-center gap-2 mb-2 p-2 border rounded-lg bg-card"
+      className="flex items-center gap-2 mb-2 p-2 border rounded-lg bg-card w-full"
     >
       <div {...attributes} {...listeners}>
         <GripVertical className="cursor-move text-muted-foreground" />
@@ -170,14 +172,14 @@ export function FilterCondition({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="w-[200px] justify-between"
+            className="w-[250px] justify-between"
           >
             {condition.column
               ? selectedColumn?.displayName
               : "Select column..."}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[200px] p-0">
+        <PopoverContent className="w-[250px] p-0">
           <Command>
             <CommandInput 
               placeholder="Search column..." 
@@ -232,39 +234,52 @@ export function FilterCondition({
 
       {condition.column && condition.operator && showValueInput && (
         <div className="flex-1">
-          {useLUT && isStringType ? (
-            <Select>
-              <SelectTrigger className="w-full">
+          {useLUT ? (
+            <Select
+              value={condition.value?.toString() || ""}
+              onValueChange={(value) => onChange({ value })}
+            >
+              <SelectTrigger>
                 <SelectValue placeholder="Select LUT value" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="lut1">LUT Value 1</SelectItem>
-                <SelectItem value="lut2">LUT Value 2</SelectItem>
-                <SelectItem value="lut3">LUT Value 3</SelectItem>
+                {lutNames.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-          ) : isDateType ? (
-            renderDateInput()
-          ) : isNumberType ? (
-            renderNumberInput()
-          ) : renderValueInput ? renderValueInput() : (
-            <Input
-              value={condition.value || ''}
-              onChange={(e) => onChange({ value: e.target.value })}
-              placeholder="Enter value..."
-            />
+          ) : (
+            <>
+              {isDateType ? (
+                renderDateInput()
+              ) : isNumberType ? (
+                <Input
+                  type="number"
+                  value={condition.value || ""}
+                  onChange={(e) => onChange({ value: e.target.value })}
+                />
+              ) : (
+                <Input
+                  placeholder="Enter value"
+                  value={condition.value || ""}
+                  onChange={(e) => onChange({ value: e.target.value })}
+                />
+              )}
+            </>
           )}
         </div>
       )}
 
       {isStringType && condition.column && condition.operator && showValueInput && (
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 min-w-[150px]">
           <Switch
             id={`use-lut-${id}`}
             checked={useLUT}
             onCheckedChange={setUseLUT}
           />
-          <Label htmlFor={`use-lut-${id}`} className="text-sm text-muted-foreground">
+          <Label htmlFor={`use-lut-${id}`} className="text-sm text-muted-foreground whitespace-nowrap">
             Use LUT
           </Label>
         </div>
