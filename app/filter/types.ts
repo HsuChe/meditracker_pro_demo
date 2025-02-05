@@ -16,9 +16,9 @@ export interface FilterCondition {
   id: string;
   column: string;
   operator: string;
-  value: string | number | readonly string[] | null;
+  value: string | number | null;
   secondValue?: string | number | null;
-  isListValue?: boolean;
+  lutValue?: string;
 }
 
 export interface FilterKey {

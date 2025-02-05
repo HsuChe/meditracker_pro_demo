@@ -13,6 +13,16 @@ import ClaimsTable from "./components/ClaimsTable"
 import SaveFilterDialog from "./components/SaveFilterDialog"
 import SavedFiltersSelect from "./components/SaveFilterSelect"
 
+interface IngestedDataRecord {
+  type: string;
+  name: string;
+  ingested_data_id: number;
+}
+
+interface IngestedDataResponse {
+  records: IngestedDataRecord[];
+}
+
 export default function FilterPage() {
   // State declarations
   const [filterName, setFilterName] = useState("")
@@ -49,6 +59,7 @@ export default function FilterPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false)
   const [lutNames, setLutNames] = useState<string[]>([])
+  const [ingestedData, setIngestedData] = useState<IngestedDataResponse>({ records: [] })
 
   // Load initial data
   useEffect(() => {
@@ -68,16 +79,39 @@ export default function FilterPage() {
 
         const claimsData = await claimsResponse.json()
         const columnTypes = await columnTypesResponse.json() as ColumnTypeResponse
-        const ingestedData = await ingestedDataResponse.json()
+        const ingestedDataResponseData = await ingestedDataResponse.json()
+
+        // Set ingested data with the correct structure
+        setIngestedData({ records: ingestedDataResponseData.records || [] });
 
         // Get unique names of claims records
         const uniqueClaimsNames = Array.from(new Set<string>(
-          ingestedData.records
+          ingestedDataResponseData.records
             .filter((record: any) => record.type === 'claims')
             .map((record: any) => record.name)
         ));
         setLutNames(uniqueClaimsNames);
         console.log('Unique Claims Names:', uniqueClaimsNames);
+
+        // Fetch diagnosis codes for each ingested claims record
+        const ingestedClaimsIds = ingestedDataResponseData.records
+          .filter((record: any) => record.type === 'claims')
+          .map((record: any) => record.ingested_data_id);
+
+        if (ingestedClaimsIds.length > 0) {
+          const diagnosisResponse = await fetch('http://localhost:5000/api/filters/diagnosis-codes', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ingestedIds: ingestedClaimsIds })
+          });
+
+          if (diagnosisResponse.ok) {
+            const diagnosisData = await diagnosisResponse.json();
+            console.log('Diagnosis Codes by Ingested Data:', diagnosisData);
+          }
+        }
 
         if (claimsData.claims && claimsData.claims.length > 0) {
           setClaims(claimsData.claims)
@@ -794,6 +828,9 @@ export default function FilterPage() {
         onDragEnd={handleDragEnd}
         onUpdateKeyColumn={handleUpdateKeyColumn}
         lutNames={lutNames}
+        ingestedIds={ingestedData.records
+          .filter((record: any) => record.type === 'claims')
+          .map((record: any) => record.ingested_data_id)}
       />
 
       <div className="flex gap-4 mb-8">

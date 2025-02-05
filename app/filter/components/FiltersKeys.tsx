@@ -27,6 +27,7 @@ interface FilterKeysProps {
   onDragEnd: (event: DragEndEvent) => void;
   onUpdateKeyColumn: (keyId: string, column: string) => void;
   lutNames: string[];
+  ingestedIds: number[];
 }
 
 const FilterKeys: React.FC<FilterKeysProps> = ({
@@ -39,7 +40,8 @@ const FilterKeys: React.FC<FilterKeysProps> = ({
   onConditionChange,
   onDragEnd,
   onUpdateKeyColumn,
-  lutNames
+  lutNames,
+  ingestedIds
 }) => {
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -62,6 +64,7 @@ const FilterKeys: React.FC<FilterKeysProps> = ({
         availableColumns={columns}
         operators={selectedColumn?.dataType ? OPERATORS_BY_TYPE[selectedColumn.dataType] : []}
         lutNames={lutNames}
+        ingestedIds={ingestedIds}
       />
     );
   };

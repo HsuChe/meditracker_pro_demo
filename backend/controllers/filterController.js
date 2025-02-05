@@ -1065,6 +1065,50 @@ const runOperatorTests = async (req, res) => {
     }
 };
 
+const getDiagnosisCodes = async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { ingestedIds } = req.body;
+
+    if (!ingestedIds || !Array.isArray(ingestedIds) || ingestedIds.length === 0) {
+      return res.status(400).json({ error: 'Invalid or empty ingested IDs array' });
+    }
+
+    const query = `
+      SELECT DISTINCT cd.diagnosis_code, i.name as ingested_name, i.ingested_data_id
+      FROM claims_dummy cd
+      INNER JOIN ingested_data i ON cd.ingestion_id = i.ingested_data_id
+      WHERE i.ingested_data_id = ANY($1)
+      ORDER BY i.ingested_data_id, cd.diagnosis_code
+    `;
+
+    const result = await client.query(query, [ingestedIds]);
+
+    // Group diagnosis codes by ingested data
+    const groupedData = result.rows.reduce((acc, row) => {
+      if (!acc[row.ingested_name]) {
+        acc[row.ingested_name] = {
+          ingested_data_id: row.ingested_data_id,
+          diagnosis_codes: []
+        };
+      }
+      acc[row.ingested_name].diagnosis_codes.push(row.diagnosis_code);
+      return acc;
+    }, {});
+
+    res.json({
+      success: true,
+      data: groupedData
+    });
+
+  } catch (error) {
+    console.error('Error fetching diagnosis codes:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
+  }
+};
+
 // Update the exports
 module.exports = {
     getSavedFilters,
@@ -1075,4 +1119,5 @@ module.exports = {
     getClaimsDataTypes,
     savedFilterQueryBuilder,
     runOperatorTests,
+    getDiagnosisCodes
 };

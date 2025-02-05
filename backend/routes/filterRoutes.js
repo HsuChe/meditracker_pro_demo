@@ -9,7 +9,8 @@ const {
     executeFilter,
     loadSavedFilterData,
     savedFilterQueryBuilder,
-    runOperatorTests
+    runOperatorTests,
+    getDiagnosisCodes
 } = require('../controllers/filterController');
 
 // Claims routes
@@ -36,5 +37,8 @@ router.get('/execute/:filterId', async (req, res) => {
 
 // Add test route
 router.get('/test-operators', runOperatorTests);
+
+// Add new route for diagnosis codes
+router.post('/diagnosis-codes', getDiagnosisCodes);
 
 module.exports = router;

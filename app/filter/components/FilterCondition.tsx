@@ -23,6 +23,18 @@ interface ColumnInfo {
   dataType: 'string' | 'number' | 'date' | 'boolean';
 }
 
+interface DiagnosisCodeData {
+  diagnosis_codes: string[];
+  ingested_data_id: number;
+}
+
+interface DiagnosisCodeResponse {
+  success: boolean;
+  data: {
+    [key: string]: DiagnosisCodeData;
+  };
+}
+
 interface FilterConditionProps {
   id: string;
   condition: FilterCondition;
@@ -33,6 +45,7 @@ interface FilterConditionProps {
   operators?: string[];
   renderValueInput?: () => React.ReactNode;
   lutNames: string[];
+  ingestedIds?: number[];
 }
 
 export function FilterCondition({
@@ -44,13 +57,15 @@ export function FilterCondition({
   availableColumns,
   operators = [],
   renderValueInput,
-  lutNames
+  lutNames,
+  ingestedIds = []
 }: FilterConditionProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
   const [useLUT, setUseLUT] = useState(false)
   const [date, setDate] = useState<Date>()
   const [dateRange, setDateRange] = useState<DateRange>()
+  const [diagnosisCodes, setDiagnosisCodes] = useState<DiagnosisCodeResponse['data']>({})
   
   const selectedColumn = availableColumns.find(col => col.name === condition.column)
   const isStringType = selectedColumn?.dataType === 'string'
@@ -58,6 +73,42 @@ export function FilterCondition({
   const isNumberType = selectedColumn?.dataType === 'number'
   const showValueInput = condition.operator && operatorNeedsInput(condition.operator)
   const showSecondValueInput = condition.operator && operatorNeedsSecondInput(condition.operator)
+
+  useEffect(() => {
+    if (useLUT && condition.column === 'diagnosis_code') {
+      // When LUT is enabled and column is diagnosis_code, set operator to in_list
+      onChange({ operator: 'in_list' });
+    }
+  }, [useLUT, condition.column]);
+
+  useEffect(() => {
+    const fetchDiagnosisCodes = async () => {
+      try {
+        console.log('Fetching diagnosis codes with IDs:', ingestedIds);
+        const response = await fetch('http://localhost:5000/api/filters/diagnosis-codes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ingestedIds
+          })
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log('Received diagnosis codes:', result.data);
+          setDiagnosisCodes(result.data);
+        }
+      } catch (error) {
+        console.error('Error fetching diagnosis codes:', error);
+      }
+    };
+
+    if (useLUT && condition.column === 'diagnosis_code' && ingestedIds.length > 0) {
+      fetchDiagnosisCodes();
+    }
+  }, [useLUT, condition.column, ingestedIds]);
 
   const {
     attributes,
@@ -77,6 +128,25 @@ export function FilterCondition({
       setUseLUT(false)
     }
   }, [condition.column, isStringType])
+
+  const handleLUTNameSelect = (name: string) => {
+    console.log('Selected LUT name:', name);
+    console.log('Available diagnosis codes:', diagnosisCodes);
+    
+    if (diagnosisCodes[name]) {
+      const selectedCodes = diagnosisCodes[name].diagnosis_codes;
+      console.log('Selected diagnosis codes:', selectedCodes);
+      
+      // Update both the operator and values in a single onChange call
+      onChange({ 
+        operator: 'in_list',
+        value: selectedCodes.join(','),
+        lutValue: name // Add this to maintain the selected name in the dropdown
+      });
+    } else {
+      console.log('No diagnosis codes found for name:', name);
+    }
+  };
 
   const renderDateInput = () => {
     if (showSecondValueInput) {
@@ -224,7 +294,9 @@ export function FilterCondition({
           <SelectValue placeholder="Select operator" />
         </SelectTrigger>
         <SelectContent>
-          {operators.map((operator) => (
+          {(useLUT && condition.column === 'diagnosis_code' 
+            ? ['in_list', 'not_in_list'] 
+            : operators).map((operator) => (
             <SelectItem key={operator} value={operator}>
               {operator.replace(/_/g, ' ')}
             </SelectItem>
@@ -236,8 +308,8 @@ export function FilterCondition({
         <div className="flex-1">
           {useLUT ? (
             <Select
-              value={condition.value?.toString() || ""}
-              onValueChange={(value) => onChange({ value })}
+              value={condition.lutValue || ""}
+              onValueChange={handleLUTNameSelect}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select LUT value" />
@@ -255,11 +327,7 @@ export function FilterCondition({
               {isDateType ? (
                 renderDateInput()
               ) : isNumberType ? (
-                <Input
-                  type="number"
-                  value={condition.value || ""}
-                  onChange={(e) => onChange({ value: e.target.value })}
-                />
+                renderNumberInput()
               ) : (
                 <Input
                   placeholder="Enter value"
