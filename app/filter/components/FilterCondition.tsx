@@ -90,7 +90,6 @@ export function FilterCondition({
         // Only fetch if we haven't already fetched for these IDs
         if (hasFetchedRef.current) return;
         
-        console.log('Fetching diagnosis codes with IDs:', ingestedIds);
         const response = await fetch('http://localhost:5000/api/filters/diagnosis-codes', {
           method: 'POST',
           headers: {
@@ -103,7 +102,6 @@ export function FilterCondition({
         
         if (response.ok) {
           const result = await response.json();
-          console.log('Received diagnosis codes:', result.data);
           setDiagnosisCodes(result.data);
           hasFetchedRef.current = true;
         }
@@ -142,12 +140,9 @@ export function FilterCondition({
   }, [condition.column, isStringType])
 
   const handleLUTNameSelect = (name: string) => {
-    console.log('Selected LUT name:', name);
-    console.log('Available diagnosis codes:', diagnosisCodes);
     
     if (diagnosisCodes[name]) {
       const selectedCodes = diagnosisCodes[name].diagnosis_codes;
-      console.log('Selected diagnosis codes:', selectedCodes);
       
       // Update both the operator and values in a single onChange call
       onChange({ 
@@ -319,21 +314,23 @@ export function FilterCondition({
       {condition.column && condition.operator && showValueInput && (
         <div className="flex-1">
           {useLUT ? (
-            <Select
-              value={condition.lutValue || ""}
-              onValueChange={handleLUTNameSelect}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select LUT value" />
-              </SelectTrigger>
-              <SelectContent>
-                {lutNames.map((name) => (
-                  <SelectItem key={name} value={name}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <>
+              <Select
+                value={condition.lutValue || ""}
+                onValueChange={handleLUTNameSelect}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select LUT value" />
+                </SelectTrigger>
+                <SelectContent>
+                  {lutNames.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </>
           ) : (
             <>
               {isDateType ? (

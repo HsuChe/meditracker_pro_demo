@@ -23,6 +23,13 @@ interface IngestedDataResponse {
   records: IngestedDataRecord[];
 }
 
+interface LUTRecord {
+  ingested_data_id: number;
+  name: string;
+  activity_status: string;
+  type: string;
+}
+
 export default function FilterPage() {
   // State declarations
   const [filterName, setFilterName] = useState("")
@@ -60,6 +67,7 @@ export default function FilterPage() {
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false)
   const [lutNames, setLutNames] = useState<string[]>([])
   const [ingestedData, setIngestedData] = useState<IngestedDataResponse>({ records: [] })
+  const [diagnosisCodes, setDiagnosisCodes] = useState<any[]>([])
 
   // Memoize the ingested IDs array
   const ingestedLutIds = useMemo(() => 
@@ -78,7 +86,7 @@ export default function FilterPage() {
         const [claimsResponse, columnTypesResponse, ingestedDataResponse] = await Promise.all([
           fetch(`http://localhost:5000/api/filters/claims?page=1&limit=${pageSize}`),
           fetch('http://localhost:5000/api/filters/claimsDtype'),
-          fetch('http://localhost:5000/api/ingested-data')
+          fetch('http://localhost:5000/api/luts')
         ])
 
         if (!claimsResponse.ok || !columnTypesResponse.ok || !ingestedDataResponse.ok) {
@@ -87,19 +95,40 @@ export default function FilterPage() {
 
         const claimsData = await claimsResponse.json()
         const columnTypes = await columnTypesResponse.json() as ColumnTypeResponse
-        const ingestedDataResponseData = await ingestedDataResponse.json()
+        const lutsData = await ingestedDataResponse.json()
 
         // Set ingested data with the correct structure
-        setIngestedData({ records: ingestedDataResponseData.records || [] });
+        setIngestedData({ records: lutsData.records || [] });
 
-        // Get unique names of claims records
+        // Get LUT records that are active and their IDs
+        const activeLUTRecords = lutsData.records.filter((record: LUTRecord) => record.activity_status === 'active');
+        const activeIngestedIds = activeLUTRecords.map((lut: LUTRecord) => lut.ingested_data_id);
+        
+        // Fetch diagnosis codes using the diagnosis-codes endpoint
+        const diagnosisCodesResponse = await fetch('http://localhost:5000/api/filters/diagnosis-codes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ingestedIds: activeIngestedIds
+          })
+        });
+
+        if (diagnosisCodesResponse.ok) {
+          const diagnosisCodesData = await diagnosisCodesResponse.json();
+          
+          if (diagnosisCodesData.success) {
+            setDiagnosisCodes(diagnosisCodesData.data);
+          }
+        }
+
+        // Get unique names of LUT records
         const uniqueClaimsNames = Array.from(new Set<string>(
-          ingestedDataResponseData.records
-            .filter((record: any) => record.type === 'lut')
-            .map((record: any) => record.name)
+          activeLUTRecords.map((record: LUTRecord) => record.name)
         ));
+        
         setLutNames(uniqueClaimsNames);
-        console.log('Unique LUT Names:', uniqueClaimsNames);
 
         if (claimsData.claims && claimsData.claims.length > 0) {
           setClaims(claimsData.claims)

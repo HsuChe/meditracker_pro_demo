@@ -66,8 +66,6 @@ const buildWhereClauses = (conditions) => {
     const clauses = [];
     const params = [];
 
-    console.log('Building where clauses for conditions:', conditions);
-
     if (!conditions || !Array.isArray(conditions)) {
         return { clauses, params };
     }
@@ -77,7 +75,6 @@ const buildWhereClauses = (conditions) => {
         
         // Skip if value is null/undefined (unless it's is_null/is_not_null operator)
         if (value === null && !['is_null', 'is_not_null', 'between'].includes(operator)) {
-            console.log('Skipping condition with null value:', condition);
             return;
         }
 
@@ -120,7 +117,7 @@ const buildWhereClauses = (conditions) => {
                 case 'not_in_list':
                     const notInListValues = String(value).split(/[,;\t|]/).map(v => v.trim()).filter(v => v.length > 0);
                     params.push(notInListValues);
-                    clauses.push(`LOWER(${column}::text) != ALL(SELECT LOWER(UNNEST($${params.length}::text[])))`);
+                    clauses.push(`LOWER(${column}::text) NOT IN (SELECT LOWER(UNNEST($${params.length}::text[])))`);
                     break;
                 case 'greater_than':
                     params.push(value);
@@ -147,9 +144,6 @@ const buildWhereClauses = (conditions) => {
                         clauses.push(`${column}::${betweenType} BETWEEN $${params.length - 1}::${betweenType} AND $${params.length}::${betweenType}`);
                     }
                     break;
-                default:
-                    console.log('Unsupported operator:', operator);
-                    break;
             }
         } else {
             // Handle is_null and is_not_null without parameters
@@ -161,7 +155,6 @@ const buildWhereClauses = (conditions) => {
         }
     });
 
-    console.log('Generated clauses and params:', { clauses, params });
     return { clauses, params };
 };
 
@@ -258,15 +251,6 @@ const buildIdQuery = (mainConditions, subKeyConditions) => {
 
     query += `) SELECT id FROM matching_claims`;
 
-    console.log('Query building debug:', {
-        mainWhereClauses: mainWhere.clauses,
-        mainWhereParams: mainWhere.params,
-        subWhereClauses: subWhere.clauses,
-        subWhereParams: subWhere.params,
-        finalQuery: query,
-        finalParams: allParams
-    });
-
     return {
         query,
         params: allParams
@@ -278,15 +262,6 @@ const saveFilter = async (req, res) => {
     const client = await pool.connect();
     try {
         const { name, description, conditions, is_favorite, created_by } = req.body;
-        
-        console.log('=== Save Filter Debug ===');
-        console.log('1. Incoming payload:', {
-            name,
-            description,
-            conditions: JSON.stringify(conditions, null, 2),
-            is_favorite,
-            created_by
-        });
         
         await client.query('BEGIN');
 
@@ -321,27 +296,12 @@ const saveFilter = async (req, res) => {
                 column, operator, value, secondValue
             }));
 
-        console.log('2. Separated conditions:', {
-            mainConditions,
-            subKeyConditions
-        });
-
         // Build and execute query to get matching IDs
         const { query: idQuery, params: queryParams } = buildIdQuery(mainConditions, subKeyConditions);
 
-        console.log('3. Query details:', {
-            query: idQuery,
-            params: queryParams,
-            paramCount: queryParams.length,
-            mainConditions,
-            subKeyConditions
-        });
-
         // Execute query and get matching IDs
         const matchingIds = await client.query(idQuery, queryParams);
-        console.log('Query executed successfully');
         const claims_ids = matchingIds.rows.map(row => row.id);
-        console.log('4. Matching IDs:', claims_ids);
 
         // Prepare filter config
         const filterConfig = {
@@ -359,11 +319,6 @@ const saveFilter = async (req, res) => {
             is_favorite || false,
             created_by || 'system'
         ];
-
-        console.log('5. Insert operation:', {
-            params: insertParams,
-            paramCount: insertParams.length
-        });
 
         // Execute insert
         const result = await client.query(`
@@ -383,16 +338,9 @@ const saveFilter = async (req, res) => {
     } catch (err) {
         await client.query('ROLLBACK');
         console.error('Error saving filter:', err);
-        console.error('Error details:', {
-            message: err.message,
-            stack: err.stack,
-            query: err.query,
-            parameters: err.parameters
-        });
         res.status(500).json({ 
             error: 'Internal server error', 
-            details: err.message,
-            stack: err.stack
+            details: err.message
         });
     } finally {
         client.release();
@@ -404,7 +352,6 @@ const executeFilter = async (req, res) => {
     const debugLogs = [];
     const log = (step, data) => {
         debugLogs.push({ step, data });
-        console.log('\n' + step + ':', JSON.stringify(data, null, 2));
     };
 
     log('=== Execute Filter Process ===', null);
@@ -656,12 +603,6 @@ const buildFilterQuery = (conditions) => {
         GROUP BY c.claim_id
     `;
 
-    console.log('Built filter query:', {
-        query,
-        params,
-        conditions
-    });
-
     return { query, params };
 };
 
@@ -684,18 +625,6 @@ const savedFilterQueryBuilder = async (filterId, req, res) => {
         const savedFilter = result.rows[0];
         const filterConfig = savedFilter.conditions;
         const claimIds = savedFilter.claims_ids;
-
-        console.log('Retrieved saved filter:', {
-            filterConfig,
-            claimIds,
-            metadata: {
-                name: savedFilter.name,
-                description: savedFilter.description,
-                is_favorite: savedFilter.is_favorite,
-                created_by: savedFilter.created_by,
-                last_updated: savedFilter.last_updated
-            }
-        });
 
         // Extract conditions from the saved filter
         const conditions = filterConfig.originalPayload || 
@@ -784,20 +713,13 @@ const getClaims = async (req, res) => {
             params = [];
         }
 
-        console.log('Using conditions:', conditions);
-        console.log('Base query:', baseQuery);
-        console.log('Parameters:', params);
-
         // Use the optimized query builder
         const combinedQuery = buildOptimizedCombinedQuery(baseQuery, conditions, limit, offset);
 
         // Execute the query with parameters
-        console.log('Executing optimized combined query with params:', params);
         const result = await client.query(combinedQuery, params);
-        console.log('Query executed successfully');
 
         if (!result.rows || result.rows.length === 0) {
-            console.log('No results found');
             return res.json({
                 claims: [],
                 statistics: {
@@ -844,16 +766,9 @@ const getClaims = async (req, res) => {
 
     } catch (error) {
         console.error('Error in getClaims:', error);
-        console.error('Error details:', {
-            message: error.message,
-            stack: error.stack,
-            query: error.query,
-            parameters: error.parameters
-        });
         res.status(500).json({ 
             error: 'Internal server error', 
-            details: error.message,
-            stack: error.stack
+            details: error.message
         });
     } finally {
         client.release();
@@ -1069,7 +984,6 @@ const getDiagnosisCodes = async (req, res) => {
   const client = await pool.connect();
   try {
     const { ingestedIds } = req.body;
-    console.log('Received ingestedIds:', ingestedIds);
 
     if (!ingestedIds || !Array.isArray(ingestedIds) || ingestedIds.length === 0) {
       return res.status(400).json({ error: 'Invalid or empty ingested IDs array' });
@@ -1082,7 +996,6 @@ const getDiagnosisCodes = async (req, res) => {
       WHERE ingested_data_id = ANY($1) AND type = 'lut'
     `;
     const verifyResult = await client.query(verifyQuery, [ingestedIds]);
-    console.log('Verified LUT records:', verifyResult.rows);
 
     const query = `
       SELECT DISTINCT le.value as diagnosis_code, i.name as ingested_name, i.ingested_data_id
@@ -1094,7 +1007,6 @@ const getDiagnosisCodes = async (req, res) => {
     `;
 
     const result = await client.query(query, [ingestedIds]);
-    console.log('Query result rows:', result.rows);
 
     // Group diagnosis codes by ingested data
     const groupedData = result.rows.reduce((acc, row) => {
@@ -1107,8 +1019,6 @@ const getDiagnosisCodes = async (req, res) => {
       acc[row.ingested_name].diagnosis_codes.push(row.diagnosis_code);
       return acc;
     }, {});
-
-    console.log('Grouped data:', groupedData);
 
     res.json({
       success: true,

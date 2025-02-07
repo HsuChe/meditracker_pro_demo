@@ -154,7 +154,6 @@ export default function IngestionPage() {
     }
 
     try {
-      console.log('Submitting LUT with data:', { name: lutName, data: lutData });
       
       const response = await fetch('/api/luts', {
         method: 'POST',
@@ -171,8 +170,6 @@ export default function IngestionPage() {
         console.error('Server error response:', responseData);
         throw new Error(responseData.details || responseData.error || 'Failed to submit LUT');
       }
-
-      console.log('LUT submission successful:', responseData);
       alert('LUT submitted successfully');
       setLutName('');
       setLutData('');

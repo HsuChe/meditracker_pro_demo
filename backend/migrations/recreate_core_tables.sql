@@ -108,8 +108,10 @@ CREATE INDEX idx_claims_dummy_ingestion_id ON claims_dummy(ingestion_id);
 CREATE INDEX idx_claims_dummy_admission_date ON claims_dummy(admission_date);
 CREATE INDEX idx_claims_dummy_discharge_date ON claims_dummy(discharge_date);
 CREATE INDEX idx_claims_dummy_diagnosis_code ON claims_dummy(diagnosis_code);
+CREATE INDEX idx_claims_dummy_diagnosis_code_lower ON claims_dummy(LOWER(diagnosis_code));
 CREATE INDEX idx_claims_dummy_procedure_code ON claims_dummy(procedure_code);
 
 -- lut_entries indexes
 CREATE INDEX idx_lut_entries_ingestion_id ON lut_entries(ingestion_id);
-CREATE INDEX idx_lut_entries_value ON lut_entries(value); 
+CREATE INDEX idx_lut_entries_value ON lut_entries(value);
+CREATE INDEX idx_lut_entries_value_lower ON lut_entries(LOWER(value)); 
