@@ -296,48 +296,38 @@ export default function FilterPage() {
   }
 
   const handleConditionChange = (keyId: string, conditionId: string, updates: Partial<FilterCondition>) => {
-    setFilterKeys(keys => {
+    console.log('Filter Condition Update:', {
+      keyId,
+      conditionId,
+      updates,
+      currentFilterState: filterKeys
+    });
+    
+    setFilterKeys(prevKeys => {
       const updateCondition = (keys: FilterKey[], keyId: string, conditionId: string, updates: Partial<FilterCondition>): FilterKey[] => {
         return keys.map(key => {
           if (key.id === keyId) {
             return {
               ...key,
-              conditions: key.conditions.map(condition => {
-                if (condition.id === conditionId) {
-                  const updatedCondition = { 
-                    ...condition, 
-                    ...updates,
-                    column: updates.column 
-                      ? columns.find(col => col.displayName === updates.column)?.name || updates.column
-                      : condition.column
-                  };
-                  
-                  const columnInfo = columns.find(col => col.name === updatedCondition.column);
-                  
-                  if (columnInfo) {
-                    if (columnInfo.dataType === 'number' && typeof updatedCondition.value === 'string') {
-                      updatedCondition.value = parseFloat(updatedCondition.value) || null;
-                    } else if (columnInfo.dataType === 'boolean' && typeof updatedCondition.value === 'string') {
-                      updatedCondition.value = updatedCondition.value.toLowerCase();
-                    }
-                  }
-                  
-                  return updatedCondition;
-                }
-                return condition;
-              })
+              conditions: key.conditions.map(condition =>
+                condition.id === conditionId
+                  ? { ...condition, ...updates }
+                  : condition
+              )
             };
           }
-          return {
-            ...key,
-            children: updateCondition(key.children, keyId, conditionId, updates)
-          };
+          if (key.children.length > 0) {
+            return {
+              ...key,
+              children: updateCondition(key.children, keyId, conditionId, updates)
+            };
+          }
+          return key;
         });
       };
-
-      return updateCondition(keys, keyId, conditionId, updates);
+      return updateCondition(prevKeys, keyId, conditionId, updates);
     });
-  }
+  };
 
   const handleAddKey = (parentId: string, keyType: 'main' | 'sub') => {
     setFilterKeys((keys) => {
@@ -551,28 +541,62 @@ export default function FilterPage() {
       const conditions = filterKeys[0].children.flatMap((mainKey: FilterKey) => {
         const mainConditions = mainKey.conditions
           .filter(c => c.column && c.operator)
-          .map(condition => ({
-            key: 'Claim Id',
-            column: condition.column,
-            operator: condition.operator,
-            value: condition.value,
-            secondValue: condition.secondValue
-          }));
-
-        const subConditions = mainKey.children.flatMap((subKey: FilterKey) => 
-          subKey.conditions
-            .filter(c => c.column && c.operator)
-            .map(condition => ({
-              key: `Sub Key: ${subKey.keyColumn}`,
+          .map(condition => {
+            // Handle between_date operator
+            if (condition.operator === 'between_date') {
+              const formattedCondition = {
+                key: 'Claim Id',
+                column: condition.column,
+                operator: condition.operator,
+                value: condition.value === 'today' ? new Date().toISOString() : condition.value,
+                secondValue: condition.secondValue
+              };
+              console.log('Formatted between_date condition:', formattedCondition);
+              return formattedCondition;
+            }
+            
+            return {
+              key: 'Claim Id',
               column: condition.column,
               operator: condition.operator,
               value: condition.value,
               secondValue: condition.secondValue
-            }))
+            };
+          });
+
+        const subConditions = mainKey.children.flatMap((subKey: FilterKey) => 
+          subKey.conditions
+            .filter(c => c.column && c.operator)
+            .map(condition => {
+              // Handle between_date operator for sub conditions
+              if (condition.operator === 'between_date') {
+                const formattedSubCondition = {
+                  key: `Sub Key: ${subKey.keyColumn}`,
+                  column: condition.column,
+                  operator: condition.operator,
+                  value: condition.value === 'today' ? new Date().toISOString() : condition.value,
+                  secondValue: condition.secondValue
+                };
+                console.log('Formatted between_date sub-condition:', formattedSubCondition);
+                return formattedSubCondition;
+              }
+
+              return {
+                key: `Sub Key: ${subKey.keyColumn}`,
+                column: condition.column,
+                operator: condition.operator,
+                value: condition.value,
+                secondValue: condition.secondValue
+              };
+            })
         );
 
         return [...mainConditions, ...subConditions];
       });
+
+      console.log('=== Filter Request Details ===');
+      console.log('Original filter keys:', JSON.stringify(filterKeys, null, 2));
+      console.log('Processed conditions:', JSON.stringify(conditions, null, 2));
 
       const payload = {
         name: filterName,
@@ -581,6 +605,8 @@ export default function FilterPage() {
         page: page,
         limit: pageSize
       };
+
+      console.log('Sending payload to server:', JSON.stringify(payload, null, 2));
 
       const response = await fetch('http://localhost:5000/api/filters/claims', {
         method: 'POST',
@@ -592,10 +618,12 @@ export default function FilterPage() {
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Server error response:', errorData);
         throw new Error(errorData.message || 'Failed to apply filter');
       }
 
       const data = await response.json();
+      console.log('Server response:', JSON.stringify(data, null, 2));
 
       setClaims(data.claims);
       setStatistics({

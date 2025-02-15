@@ -17,8 +17,14 @@ export interface FilterCondition {
   column: string;
   operator: string;
   value: string | number | null;
-  secondValue?: string | number | null;
+  secondValue?: BetweenDateValue | string | number | null;
   lutValue?: string;
+}
+
+export interface BetweenDateValue {
+  operator: 'greater_than' | 'less_than' | 'equals';
+  value: number;
+  unit: 'year' | 'month' | 'week' | 'day';
 }
 
 export interface FilterKey {
@@ -70,8 +76,8 @@ export interface BackendFilterCondition {
   key: string;
   column: string;
   operator: string;
-  value: string | number | readonly string[] | null;
-  secondValue?: string | number | null;
+  value: string | number | null;
+  secondValue?: BetweenDateValue | string | number | null;
 }
 
 export type DataType = 'string' | 'number' | 'date' | 'boolean';

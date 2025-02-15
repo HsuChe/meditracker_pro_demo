@@ -35,7 +35,10 @@ const ClaimsTable: React.FC<ClaimsTableProps> = ({
   if (isLoading) {
     return (
       <div className="flex justify-center p-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div 
+          className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"
+          data-testid="loading-spinner"
+        />
       </div>
     );
   }
@@ -62,7 +65,8 @@ const ClaimsTable: React.FC<ClaimsTableProps> = ({
           <span className="text-sm text-muted-foreground">Claims per page:</span>
           <Select
             value={pageSize.toString()}
-            onValueChange={(value) => onPageSizeChange(parseInt(value))}
+            onValueChange={(value) => onPageSizeChange(Number(value))}
+            data-testid="page-size-select"
           >
             <SelectTrigger className="w-[70px]">
               <SelectValue>{pageSize}</SelectValue>
@@ -105,6 +109,7 @@ const ClaimsTable: React.FC<ClaimsTableProps> = ({
                           size="icon"
                           onClick={() => onToggleRowExpansion(claim.claim_id)}
                           className="h-6 w-6"
+                          data-testid="expand-row-button"
                         >
                           {isExpanded ? (
                             <ChevronDown className="h-4 w-4" />
@@ -151,20 +156,22 @@ const ClaimsTable: React.FC<ClaimsTableProps> = ({
 
       <div className="flex justify-between items-center">
         <div className="text-sm text-muted-foreground">
-          Page {page} of {Math.ceil((statistics?.uniqueClaimIds || 0) / pageSize)}
+          Page {page} of {Math.max(1, Math.ceil((statistics?.uniqueClaimIds || 0) / pageSize))}
         </div>
         <div className="flex gap-2">
           <Button
             variant="outline"
-            onClick={() => onPageChange(Math.max(1, page - 1))}
-            disabled={page === 1}
+            onClick={() => onPageChange(page - 1)}
+            disabled={page <= 1}
+            data-testid="prev-page-button"
           >
             Previous
           </Button>
           <Button
             variant="outline"
             onClick={() => onPageChange(page + 1)}
-            disabled={page * pageSize >= (statistics?.uniqueClaimIds || 0)}
+            disabled={page >= Math.ceil((statistics?.uniqueClaimIds || 0) / pageSize)}
+            data-testid="next-page-button"
           >
             Next
           </Button>

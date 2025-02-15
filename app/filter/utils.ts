@@ -3,7 +3,7 @@ import { DataType, ClaimData } from './types';
 export const OPERATORS_BY_TYPE: Record<DataType, string[]> = {
   string: ['equals', 'contains', 'starts_with', 'ends_with', 'is_null', 'is_not_null', 'in_list', 'not_in_list'],
   number: ['equals', 'greater_than', 'less_than', 'greater_than_equals', 'less_than_equals', 'between', 'is_null', 'is_not_null'],
-  date: ['equals', 'before', 'after', 'between', 'is_null', 'is_not_null'],
+  date: ['equals', 'before', 'after', 'between', 'between_date', 'is_null', 'is_not_null'],
   boolean: ['equals', 'is_null', 'is_not_null']
 };
 
@@ -32,7 +32,7 @@ export const operatorNeedsInput = (operator: string): boolean => {
 };
 
 export const operatorNeedsSecondInput = (operator: string): boolean => {
-  return operator === 'between';
+  return operator === 'between' || operator === 'between_date';
 };
 
 export const checkCondition = (value: any, filterValue: any, operator: string, secondValue?: any) => {
@@ -81,6 +81,37 @@ export const checkCondition = (value: any, filterValue: any, operator: string, s
       return new Date(value) < new Date(filterValue);
     case 'after':
       return new Date(value) > new Date(filterValue);
+    case 'between_date':
+      const dateValue = new Date(value);
+      const compareDate = new Date(filterValue);
+      const compareValue = secondValue?.value;
+      const compareUnit = secondValue?.unit as 'year' | 'month' | 'week' | 'day';
+      const compareOperator = secondValue?.operator;
+      
+      if (isNaN(dateValue.getTime()) || isNaN(compareDate.getTime()) || !compareValue || !compareUnit || !compareOperator) {
+        return false;
+      }
+
+      const timeDiff = dateValue.getTime() - compareDate.getTime();
+      const unitInMs = {
+        year: 31536000000,  // 365 days
+        month: 2592000000,  // 30 days
+        week: 604800000,    // 7 days
+        day: 86400000       // 1 day
+      }[compareUnit];
+
+      const diffInUnits = Math.abs(timeDiff) / unitInMs;
+
+      switch (compareOperator) {
+        case 'greater_than':
+          return diffInUnits > compareValue;
+        case 'less_than':
+          return diffInUnits < compareValue;
+        case 'equals':
+          return diffInUnits === compareValue;
+        default:
+          return false;
+      }
     default:
       return true;
   }

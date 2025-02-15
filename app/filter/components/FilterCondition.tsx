@@ -5,14 +5,14 @@ import { GripVertical, X, Check, Calendar as CalendarIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectSeparator } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { DatePickerWithRange } from "@/components/ui/date-range-picker"
 import { cn } from "@/lib/utils"
-import { type FilterCondition } from "../types"
+import { type FilterCondition, type BetweenDateValue } from "../types"
 import { format } from "date-fns"
 import { type DateRange } from "react-day-picker"
 import { operatorNeedsInput, operatorNeedsSecondInput } from '../utils'
@@ -156,28 +156,125 @@ export function FilterCondition({
   };
 
   const renderDateInput = () => {
-    if (showSecondValueInput) {
+    if (condition.operator === 'is_null' || condition.operator === 'is_not_null') {
+      return null;
+    }
+
+    if (condition.operator === 'between_date') {
+      const betweenValue = (condition.secondValue as BetweenDateValue) || {
+        operator: 'greater_than',
+        value: 0,
+        unit: 'day'
+      };
+
+      // Filter for date columns only
+      const dateColumns = availableColumns.filter(col => 
+        col.dataType === 'date' && col.name !== condition.column
+      );
+
+      // Get display value for the select
+      const getDisplayValue = () => {
+        if (!condition.value) return '';
+        if (condition.value === 'today') return 'Today';
+        const column = dateColumns.find(col => col.name === condition.value);
+        return column ? column.displayName : '';
+      };
+
       return (
-        <DatePickerWithRange
-          date={dateRange}
-          onDateChange={(range) => {
-            setDateRange(range)
-            onChange({ 
-              value: range?.from ? format(range.from, 'yyyy-MM-dd') : null,
-              secondValue: range?.to ? format(range.to, 'yyyy-MM-dd') : null
-            })
-          }}
-        />
-      )
+        <div className="flex items-center gap-2">
+          <Select
+            value={String(condition.value || '')}
+            onValueChange={(value) => {
+              // When selecting a comparison column or Today, initialize the secondValue if it doesn't exist
+              if (!condition.secondValue) {
+                onChange({
+                  value,
+                  secondValue: {
+                    operator: 'greater_than',
+                    value: 0,
+                    unit: 'day'
+                  }
+                });
+              } else {
+                onChange({ value });
+              }
+            }}
+          >
+            <SelectTrigger className="w-[200px]">
+              <SelectValue>
+                {getDisplayValue()}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectSeparator className="my-1" />
+              {dateColumns.map(column => (
+                <SelectItem key={column.name} value={column.name}>
+                  {column.displayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={betweenValue.operator}
+            onValueChange={(value: BetweenDateValue['operator']) => onChange({ 
+              secondValue: { 
+                ...betweenValue, 
+                operator: value 
+              } 
+            })}
+          >
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="Select operator" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="greater_than">Greater Than</SelectItem>
+              <SelectItem value="less_than">Less Than</SelectItem>
+              <SelectItem value="equals">Equals</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            type="number"
+            placeholder="Value"
+            className="w-[100px]"
+            value={betweenValue.value || ''}
+            onChange={(e) => onChange({ 
+              secondValue: { 
+                ...betweenValue, 
+                value: parseFloat(e.target.value) 
+              } 
+            })}
+          />
+          <Select
+            value={betweenValue.unit}
+            onValueChange={(value: BetweenDateValue['unit']) => onChange({ 
+              secondValue: { 
+                ...betweenValue, 
+                unit: value 
+              } 
+            })}
+          >
+            <SelectTrigger className="w-[100px]">
+              <SelectValue placeholder="Unit" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="year">Years</SelectItem>
+              <SelectItem value="month">Months</SelectItem>
+              <SelectItem value="week">Weeks</SelectItem>
+              <SelectItem value="day">Days</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      );
     }
 
     return (
       <Popover>
         <PopoverTrigger asChild>
           <Button
-            variant="outline"
+            variant={"outline"}
             className={cn(
-              "w-full justify-start text-left font-normal",
+              "w-[240px] justify-start text-left font-normal",
               !date && "text-muted-foreground"
             )}
           >
@@ -190,18 +287,18 @@ export function FilterCondition({
             mode="single"
             selected={date}
             onSelect={(newDate) => {
-              setDate(newDate || undefined)
-              onChange({ value: newDate ? format(newDate, 'yyyy-MM-dd') : null })
+              setDate(newDate)
+              onChange({ value: newDate?.toISOString() })
             }}
             initialFocus
           />
         </PopoverContent>
       </Popover>
-    )
+    );
   }
 
   const renderNumberInput = () => {
-    if (showSecondValueInput) {
+    if (showSecondValueInput && condition.operator !== 'between_date') {
       return (
         <div className="flex gap-2 items-center">
           <Input
@@ -214,7 +311,7 @@ export function FilterCondition({
           <span className="text-sm text-muted-foreground">to</span>
           <Input
             type="number"
-            value={condition.secondValue || ''}
+            value={typeof condition.secondValue === 'string' || typeof condition.secondValue === 'number' ? condition.secondValue : ''}
             onChange={(e) => onChange({ secondValue: e.target.value })}
             placeholder="Max value..."
             className="flex-1"
@@ -238,6 +335,7 @@ export function FilterCondition({
       ref={setNodeRef} 
       style={style} 
       className="flex items-center gap-2 mb-2 p-2 border rounded-lg bg-card w-full"
+      data-testid="filter-condition"
     >
       <div {...attributes} {...listeners}>
         <GripVertical className="cursor-move text-muted-foreground" />
@@ -250,6 +348,7 @@ export function FilterCondition({
             role="combobox"
             aria-expanded={open}
             className="w-[250px] justify-between"
+            data-testid="column-select"
           >
             {condition.column
               ? selectedColumn?.displayName
@@ -297,7 +396,7 @@ export function FilterCondition({
         value={condition.operator}
         onValueChange={(value) => onChange({ operator: value })}
       >
-        <SelectTrigger className="w-[200px]">
+        <SelectTrigger className="w-[200px]" data-testid="operator-select">
           <SelectValue placeholder="Select operator" />
         </SelectTrigger>
         <SelectContent>
@@ -319,7 +418,7 @@ export function FilterCondition({
                 value={condition.lutValue || ""}
                 onValueChange={handleLUTNameSelect}
               >
-                <SelectTrigger>
+                <SelectTrigger data-testid="lut-select">
                   <SelectValue placeholder="Select LUT value" />
                 </SelectTrigger>
                 <SelectContent>
@@ -342,6 +441,7 @@ export function FilterCondition({
                   placeholder="Enter value"
                   value={condition.value || ""}
                   onChange={(e) => onChange({ value: e.target.value })}
+                  data-testid="value-input"
                 />
               )}
             </>
@@ -355,6 +455,7 @@ export function FilterCondition({
             id={`use-lut-${id}`}
             checked={useLUT}
             onCheckedChange={setUseLUT}
+            data-testid="use-lut-switch"
           />
           <Label htmlFor={`use-lut-${id}`} className="text-sm text-muted-foreground whitespace-nowrap">
             Use LUT
@@ -362,7 +463,13 @@ export function FilterCondition({
         </div>
       )}
 
-      <Button variant="ghost" size="icon" onClick={() => onRemove(id)}>
+      <Button 
+        variant="ghost" 
+        size="icon" 
+        onClick={() => onRemove(id)} 
+        aria-label="Remove condition"
+        data-testid="remove-condition"
+      >
         <X className="h-4 w-4" />
       </Button>
     </div>

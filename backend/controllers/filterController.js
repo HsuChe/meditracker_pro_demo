@@ -3,11 +3,12 @@ const pool = require('../config/db.config');
 const { getAllClaims } = require('../routes/claimRoutes');
 const CLAIMS_TABLE = process.env.CLAIMS_TABLE || 'claims_dummy';
 
-// Update VALID_OPERATORS to remove date-based operators
+// Update VALID_OPERATORS to include between_date
 const VALID_OPERATORS = new Set([
     'equals', 'contains', 'starts_with', 'ends_with', 
     'is_null', 'is_not_null', 'greater_than', 'less_than',
-    'between', 'before', 'after', 'in_list', 'not_in_list'
+    'between', 'before', 'after', 'in_list', 'not_in_list',
+    'between_date'
 ]);
 
 // Helper function to extract WHERE conditions from a query
@@ -63,18 +64,24 @@ const buildOptimizedCombinedQuery = (baseQuery, conditions, limit, offset) => {
 
 // Add this helper function at the top level, before any other functions
 const buildWhereClauses = (conditions) => {
+    console.log('\n=== Building Where Clauses ===');
+    console.log('Input conditions:', JSON.stringify(conditions, null, 2));
+    
     const clauses = [];
     const params = [];
 
     if (!conditions || !Array.isArray(conditions)) {
+        console.log('No conditions provided or invalid format');
         return { clauses, params };
     }
 
     conditions.forEach(condition => {
         const { column, operator, value, secondValue } = condition;
+        console.log('\nProcessing condition:', { column, operator, value, secondValue });
         
         // Skip if value is null/undefined (unless it's is_null/is_not_null operator)
-        if (value === null && !['is_null', 'is_not_null', 'between'].includes(operator)) {
+        if (value === null && !['is_null', 'is_not_null', 'between', 'between_date'].includes(operator)) {
+            console.log('Skipping condition due to null value');
             return;
         }
 
@@ -85,8 +92,8 @@ const buildWhereClauses = (conditions) => {
                 if (!isNaN(val) && typeof val !== 'boolean') {
                     return 'numeric';
                 }
-                if (operator === 'before' || operator === 'after' || operator === 'between') {
-                    return 'date';
+                if (operator === 'before' || operator === 'after' || operator === 'between' || operator === 'between_date') {
+                    return 'timestamp';
                 }
                 return 'text';
             };
@@ -144,6 +151,57 @@ const buildWhereClauses = (conditions) => {
                         clauses.push(`${column}::${betweenType} BETWEEN $${params.length - 1}::${betweenType} AND $${params.length}::${betweenType}`);
                     }
                     break;
+                case 'between_date':
+                    console.log('\n=== Processing between_date operator ===');
+                    console.log('Column:', column);
+                    console.log('Value:', value);
+                    console.log('Second Value:', secondValue);
+                    
+                    if (value && secondValue?.unit && secondValue?.value !== undefined) {
+                        const { operator: compareOp, value: compareValue, unit } = secondValue;
+                        
+                        // Convert all units to PostgreSQL interval syntax
+                        const intervalUnit = {
+                            'year': 'years',
+                            'month': 'months',
+                            'week': 'weeks',
+                            'day': 'days'
+                        }[unit];
+                        
+                        // Add the date value as a parameter instead of direct interpolation
+                        params.push(value);
+                        const paramIndex = params.length;
+                        
+                        let clause;
+                        switch (compareOp) {
+                            case 'greater_than':
+                                // For "greater than X units from today"
+                                // This means the date should be BEFORE (today - X units)
+                                // and also not in the future
+                                clause = `${column}::timestamp < ($${paramIndex}::timestamp - interval '${compareValue} ${intervalUnit}') AND ${column}::timestamp <= $${paramIndex}::timestamp`;
+                                break;
+                            case 'less_than':
+                                // For "less than X units from today" (i.e., at most X units old)
+                                // This means the date should be between (today - X units) and today
+                                clause = `${column}::timestamp BETWEEN ($${paramIndex}::timestamp - interval '${compareValue} ${intervalUnit}') AND $${paramIndex}::timestamp`;
+                                break;
+                            case 'equals':
+                                // For "exactly X units from today"
+                                // This means the date should be exactly X units ago (with some margin)
+                                // and also not in the future
+                                clause = `${column}::timestamp BETWEEN ($${paramIndex}::timestamp - interval '${compareValue} ${intervalUnit}') AND LEAST(($${paramIndex}::timestamp - interval '${compareValue} ${intervalUnit}' + interval '1 ${intervalUnit}'), $${paramIndex}::timestamp)`;
+                                break;
+                            default:
+                                clause = 'TRUE';
+                        }
+                        
+                        console.log('Generated SQL clause:', clause);
+                        console.log('Parameters:', params);
+                        clauses.push(clause);
+                    } else {
+                        console.log('Missing required parameters for between_date operator');
+                    }
+                    break;
             }
         } else {
             // Handle is_null and is_not_null without parameters
@@ -155,6 +213,10 @@ const buildWhereClauses = (conditions) => {
         }
     });
 
+    console.log('\n=== Final Where Clause Components ===');
+    console.log('Clauses:', clauses);
+    console.log('Parameters:', params);
+    
     return { clauses, params };
 };
 
