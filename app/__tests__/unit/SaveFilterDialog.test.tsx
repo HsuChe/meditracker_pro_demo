@@ -113,14 +113,14 @@ describe('SaveFilterDialog', () => {
   });
 
   it('allows description to be optional', async () => {
-    const props = {
-      ...defaultProps,
-      onNameChange: (name: string) => {
-        props.filterName = name;
-      },
-    };
-
-    render(<SaveFilterDialog {...props} />);
+    const onNameChange = jest.fn();
+    render(
+      <SaveFilterDialog
+        {...defaultProps}
+        filterName=""
+        onNameChange={onNameChange}
+      />
+    );
     
     const saveButton = screen.getByRole('button', { name: 'Save' });
     const nameInput = screen.getByLabelText('Name');
@@ -128,11 +128,20 @@ describe('SaveFilterDialog', () => {
     // Should be disabled initially
     expect(saveButton).toBeDisabled();
     
-    // Should be enabled with just a name, no description
+    // Enter a name
     fireEvent.change(nameInput, { target: { value: 'Test Filter' } });
+    expect(onNameChange).toHaveBeenCalledWith('Test Filter');
     
-    // Re-render with updated props
-    render(<SaveFilterDialog {...props} filterName="Test Filter" />);
+    // Re-render with updated name
+    render(
+      <SaveFilterDialog
+        {...defaultProps}
+        filterName="Test Filter"
+        onNameChange={onNameChange}
+      />
+    );
+    
+    // Save button should now be enabled
     const updatedSaveButton = screen.getByRole('button', { name: 'Save' });
     expect(updatedSaveButton).not.toBeDisabled();
   });
