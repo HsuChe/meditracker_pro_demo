@@ -25,16 +25,20 @@ jobs:
       run: npm ci
       
     - name: Run all tests with coverage
-      run: npm test -- --coverage --watchAll=false
+      run: npm run test:ci
       env:
         CI: true
+        JEST_JUNIT_OUTPUT_DIR: ./junit/
+        JEST_JUNIT_OUTPUT_NAME: junit.xml
+        JEST_JUNIT_CLASSNAME: "{classname}"
+        JEST_JUNIT_TITLE: "{title}"
       
     - name: Check test results
       if: always()
       run: |
-        if [ -f coverage/coverage-final.json ]; then
+        if [ -f coverage/lcov.info ]; then
           echo "Test coverage report generated successfully"
-          cat coverage/coverage-summary.txt || true
+          cat coverage/lcov-report/index.html || true
         else
           echo "No coverage report found"
           exit 1
@@ -47,7 +51,7 @@ jobs:
         name: test-results
         path: |
           coverage/
-          junit.xml
+          junit/
         retention-days: 30
 
     - name: Report Coverage to PR
