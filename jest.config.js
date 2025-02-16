@@ -13,9 +13,12 @@ const customJestConfig = {
     '^@/(.*)$': '<rootDir>/$1',
   },
   testMatch: [
-    '<rootDir>/app/__tests__/**/*.test.{js,jsx,ts,tsx}',
-    '<rootDir>/app/**/*.test.{js,jsx,ts,tsx}'
+    '<rootDir>/app/__tests__/**/*.test.{js,jsx,ts,tsx}'
   ],
+  transform: {
+    '^.+\\.(t|j)sx?$': ['@swc/jest']
+  },
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   collectCoverageFrom: [
     'app/**/*.{js,jsx,ts,tsx}',
     '!app/**/*.d.ts',
@@ -48,9 +51,6 @@ const customJestConfig = {
     '<rootDir>/.next/',
     '<rootDir>/cypress/'
   ],
-  transform: {
-    '^.+\\.(ts|tsx|js|jsx)$': ['babel-jest', { presets: ['next/babel'] }]
-  }
 };
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async

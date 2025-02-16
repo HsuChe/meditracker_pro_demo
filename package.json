@@ -80,6 +80,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@swc/jest": "^0.2.37",
     "@testing-library/jest-dom": "^6.1.4",
     "@testing-library/react": "^14.0.0",
     "@types/cypress": "^0.1.6",
