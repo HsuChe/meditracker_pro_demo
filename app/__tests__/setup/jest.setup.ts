@@ -23,4 +23,15 @@ global.IntersectionObserver = class IntersectionObserver {
   unobserve() {}
   disconnect() {}
   takeRecords(): IntersectionObserverEntry[] { return []; }
-}; 
+};
+
+// Add any global test setup here
+beforeAll(() => {
+  // Global setup before all tests
+});
+
+afterAll(() => {
+  // Global cleanup after all tests
+});
+
+// Add any global mocks here if needed 

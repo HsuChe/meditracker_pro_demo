@@ -159,45 +159,80 @@ const buildWhereClauses = (conditions) => {
                     
                     if (value && secondValue?.unit && secondValue?.value !== undefined) {
                         const { operator: compareOp, value: compareValue, unit } = secondValue;
+
+                        // Handle the reference date - it could be 'today' or a column name
+                        let referenceDate;
+                        if (value === 'today') {
+                            referenceDate = 'CURRENT_TIMESTAMP';
+                        } else if (value.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/)) {
+                            // If value is a valid column name, use it directly
+                            referenceDate = value;
+                        } else {
+                            // If it's a specific date value, add it as a parameter
+                            params.push(value);
+                            referenceDate = `$${params.length}::timestamp`;
+                        }
+
+                        // Build the appropriate interval calculation based on the unit
+                        let intervalCalc;
+                        switch (unit) {
+                            case 'year':
+                                intervalCalc = `ABS(EXTRACT(YEAR FROM AGE(${referenceDate}::timestamp, ${column}::timestamp)))`;
+                                break;
+                            case 'month':
+                                intervalCalc = `ABS(EXTRACT(MONTH FROM AGE(${referenceDate}::timestamp, ${column}::timestamp)) + 12 * EXTRACT(YEAR FROM AGE(${referenceDate}::timestamp, ${column}::timestamp)))`;
+                                break;
+                            case 'week':
+                                intervalCalc = `ABS(EXTRACT(EPOCH FROM (${referenceDate}::timestamp - ${column}::timestamp))/(86400*7))`;
+                                break;
+                            case 'day':
+                                intervalCalc = `ABS(EXTRACT(EPOCH FROM (${referenceDate}::timestamp - ${column}::timestamp))/86400)`;
+                                break;
+                            default:
+                                throw new Error(`Unsupported time unit: ${unit}`);
+                        }
                         
-                        // Convert all units to PostgreSQL interval syntax
-                        const intervalUnit = {
-                            'year': 'years',
-                            'month': 'months',
-                            'week': 'weeks',
-                            'day': 'days'
-                        }[unit];
-                        
-                        // Add the date value as a parameter instead of direct interpolation
-                        params.push(value);
-                        const paramIndex = params.length;
-                        
+                        // Build the comparison clause
                         let clause;
                         switch (compareOp) {
                             case 'greater_than':
-                                // For "greater than X units from today"
-                                // This means the date should be BEFORE (today - X units)
-                                // and also not in the future
-                                clause = `${column}::timestamp < ($${paramIndex}::timestamp - interval '${compareValue} ${intervalUnit}') AND ${column}::timestamp <= $${paramIndex}::timestamp`;
+                                clause = `${intervalCalc} > ${compareValue}`;
                                 break;
                             case 'less_than':
-                                // For "less than X units from today" (i.e., at most X units old)
-                                // This means the date should be between (today - X units) and today
-                                clause = `${column}::timestamp BETWEEN ($${paramIndex}::timestamp - interval '${compareValue} ${intervalUnit}') AND $${paramIndex}::timestamp`;
+                                clause = `${intervalCalc} < ${compareValue}`;
                                 break;
                             case 'equals':
-                                // For "exactly X units from today"
-                                // This means the date should be exactly X units ago (with some margin)
-                                // and also not in the future
-                                clause = `${column}::timestamp BETWEEN ($${paramIndex}::timestamp - interval '${compareValue} ${intervalUnit}') AND LEAST(($${paramIndex}::timestamp - interval '${compareValue} ${intervalUnit}' + interval '1 ${intervalUnit}'), $${paramIndex}::timestamp)`;
+                                // For exact matches, we'll use a small range to account for fractional differences
+                                if (unit === 'week' || unit === 'day') {
+                                    clause = `${intervalCalc} >= ${compareValue} AND ${intervalCalc} < ${compareValue + 1}`;
+                                } else {
+                                    clause = `${intervalCalc} = ${compareValue}`;
+                                }
                                 break;
                             default:
                                 clause = 'TRUE';
                         }
+
+                        // Add debug logging
+                        console.log('Debug Query:', `
+                            SELECT 
+                                ${column} as check_column, 
+                                ${referenceDate} as reference_date,
+                                ${intervalCalc} as time_diff,
+                                CASE 
+                                    WHEN ${intervalCalc} < ${compareValue} THEN 'YES'
+                                    ELSE 'NO'
+                                END as meets_criteria
+                            FROM ${CLAIMS_TABLE}
+                            WHERE ${column} IS NOT NULL 
+                            AND ${referenceDate} IS NOT NULL
+                            LIMIT 5;
+                        `);
                         
                         console.log('Generated SQL clause:', clause);
                         console.log('Parameters:', params);
                         clauses.push(clause);
+
                     } else {
                         console.log('Missing required parameters for between_date operator');
                     }
