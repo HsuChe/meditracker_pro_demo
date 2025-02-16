@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import SaveFilterDialog from '@/app/filter/components/SaveFilterDialog';
 
@@ -18,20 +18,23 @@ describe('SaveFilterDialog', () => {
     jest.clearAllMocks();
   });
 
-  it('renders the dialog when open is true', () => {
+  it('renders dialog content when open is true', () => {
     render(<SaveFilterDialog {...defaultProps} />);
     
     expect(screen.getByText('Save Filter')).toBeInTheDocument();
     expect(screen.getByText('Enter a name and description for your filter.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Description')).toBeInTheDocument();
   });
 
-  it('does not render the dialog when open is false', () => {
+  it('does not render dialog content when open is false', () => {
     render(<SaveFilterDialog {...defaultProps} open={false} />);
     
     expect(screen.queryByText('Save Filter')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
   });
 
-  it('displays input fields with correct initial values', () => {
+  it('displays initial values in input fields', () => {
     const props = {
       ...defaultProps,
       filterName: 'Test Filter',
@@ -68,21 +71,21 @@ describe('SaveFilterDialog', () => {
   it('disables save button when filterName is empty', () => {
     render(<SaveFilterDialog {...defaultProps} filterName="" />);
     
-    const saveButton = screen.getByText('Save');
+    const saveButton = screen.getByRole('button', { name: 'Save' });
     expect(saveButton).toBeDisabled();
   });
 
   it('enables save button when filterName is not empty', () => {
     render(<SaveFilterDialog {...defaultProps} filterName="Test Filter" />);
     
-    const saveButton = screen.getByText('Save');
+    const saveButton = screen.getByRole('button', { name: 'Save' });
     expect(saveButton).not.toBeDisabled();
   });
 
   it('calls onSave when save button is clicked', () => {
     render(<SaveFilterDialog {...defaultProps} filterName="Test Filter" />);
     
-    const saveButton = screen.getByText('Save');
+    const saveButton = screen.getByRole('button', { name: 'Save' });
     fireEvent.click(saveButton);
     
     expect(defaultProps.onSave).toHaveBeenCalled();
@@ -91,7 +94,7 @@ describe('SaveFilterDialog', () => {
   it('calls onOpenChange with false when cancel button is clicked', () => {
     render(<SaveFilterDialog {...defaultProps} />);
     
-    const cancelButton = screen.getByText('Cancel');
+    const cancelButton = screen.getByRole('button', { name: 'Cancel' });
     fireEvent.click(cancelButton);
     
     expect(defaultProps.onOpenChange).toHaveBeenCalledWith(false);
@@ -100,12 +103,37 @@ describe('SaveFilterDialog', () => {
   it('has correct accessibility attributes', () => {
     render(<SaveFilterDialog {...defaultProps} />);
     
-    // Check for proper labeling
-    expect(screen.getByLabelText('Name')).toBeInTheDocument();
-    expect(screen.getByLabelText('Description')).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute('aria-labelledby');
     
-    // Check dialog has a title
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByRole('dialog')).toHaveAttribute('aria-labelledby');
+    // Check for proper form controls
+    expect(screen.getByLabelText('Name')).toHaveAttribute('id', 'filter-name');
+    expect(screen.getByLabelText('Description')).toHaveAttribute('id', 'filter-description');
+  });
+
+  it('allows description to be optional', async () => {
+    const props = {
+      ...defaultProps,
+      onNameChange: (name: string) => {
+        props.filterName = name;
+      },
+    };
+
+    render(<SaveFilterDialog {...props} />);
+    
+    const saveButton = screen.getByRole('button', { name: 'Save' });
+    const nameInput = screen.getByLabelText('Name');
+    
+    // Should be disabled initially
+    expect(saveButton).toBeDisabled();
+    
+    // Should be enabled with just a name, no description
+    fireEvent.change(nameInput, { target: { value: 'Test Filter' } });
+    
+    // Re-render with updated props
+    render(<SaveFilterDialog {...props} filterName="Test Filter" />);
+    const updatedSaveButton = screen.getByRole('button', { name: 'Save' });
+    expect(updatedSaveButton).not.toBeDisabled();
   });
 }); 
