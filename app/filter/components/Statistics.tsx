@@ -5,6 +5,11 @@ interface StatisticsPanelProps {
   statistics: Statistics | null;
 }
 
+const formatDate = (dateStr: string) => {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-US', { timeZone: 'UTC' });
+};
+
 const StatisticsPanel: React.FC<StatisticsPanelProps> = ({ statistics }) => {
   if (!statistics) return null;
 
@@ -23,7 +28,7 @@ const StatisticsPanel: React.FC<StatisticsPanelProps> = ({ statistics }) => {
           <div className="text-lg md:text-xl font-bold truncate">
             {statistics.dateRange ? (
               <>
-                {new Date(statistics.dateRange.min).toLocaleDateString()} - {new Date(statistics.dateRange.max).toLocaleDateString()}
+                {formatDate(statistics.dateRange.min)} - {formatDate(statistics.dateRange.max)}
               </>
             ) : (
               'N/A'

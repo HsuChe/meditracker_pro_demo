@@ -53,7 +53,7 @@ describe('StatisticsPanel', () => {
     render(<StatisticsPanel statistics={stats} />);
     
     const dateRangeSection = screen.getByText('Date Range').parentElement;
-    expect(dateRangeSection?.querySelector('.font-bold')?.textContent?.trim()).toBe('12/30/2023 - 12/29/2024');
+    expect(dateRangeSection?.querySelector('.font-bold')?.textContent?.trim()).toBe('12/31/2023 - 12/30/2024');
   });
 
   it('shows N/A when date range is missing', () => {
