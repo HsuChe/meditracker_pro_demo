@@ -22,9 +22,16 @@
     "paths": {
       "@/*": ["./*"]
     },
-    "baseUrl": "."
+    "baseUrl": ".",
+    "types": ["jest", "@testing-library/jest-dom"]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "app/__tests__/setup/jest.d.ts"
+  ],
   "exclude": ["node_modules"]
 }
 

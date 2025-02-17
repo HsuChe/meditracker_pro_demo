@@ -7,24 +7,6 @@ import { Label } from "@/components/ui/label"
 import { UploadProgress } from "./upload-progress"
 import { parse } from 'papaparse'
 
-interface DummyClaim {
-  claim_id: string
-  line_id: string
-  patient_id: string | null
-  date_of_birth: string | null
-  gender: string | null
-  provider_id: string | null
-  facility_id: string | null
-  diagnosis_code: string | null
-  procedure_code: string | null
-  admission_date: string | null
-  discharge_date: string | null
-  revenue_code: string | null
-  modifiers: string | null
-  claim_type: string | null
-  total_charges: number | null
-  allowed_amount: number | null
-}
 
 interface ClaimsSubmitterProps {
   csvData: any[];
@@ -111,6 +93,10 @@ export function ClaimsSubmitter({
     }
     if (!ingestionName.trim()) {
       onError("Please enter a name for this ingestion");
+      return;
+    }
+    if (ingestionName.trim().length < 3) {
+      onError("Ingestion name must be at least 3 characters");
       return;
     }
     if (!mappingId || typeof mappingId !== 'number') {

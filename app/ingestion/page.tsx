@@ -9,9 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FileInput } from "@/components/ui/file-input"
-import { IngestionTable } from "./ingestion-table"
-import { MappingManager } from "./mapping-manager"
-import { ClaimsSubmitter } from "./claims-submitter"
+import { IngestionTable } from "./components/ingestion-table"
+import { MappingManager } from "./components/mapping-manager"
+import { ClaimsSubmitter } from "./components/claims-submitter"
 
 interface Ingestion {
   id: number

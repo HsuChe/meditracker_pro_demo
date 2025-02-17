@@ -1,4 +1,11 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
 
-npm test 
+# Run linting
+npm run lint
+
+# Run tests
+npm test
+
+# If everything passes, allow the commit
+exit 0 

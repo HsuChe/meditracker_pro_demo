@@ -158,9 +158,9 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
               <SelectValue placeholder="Select a saved mapping" />
             </SelectTrigger>
             <SelectContent>
-              {savedMappings.map((mapping) => (
-                <SelectItem key={mapping.id} value={mapping.id.toString()}>
-                  {mapping.name}
+              {(savedMappings || []).map((mapping) => (
+                <SelectItem key={mapping?.id} value={mapping?.id?.toString() || ''}>
+                  {mapping?.name}
                 </SelectItem>
               ))}
             </SelectContent>
