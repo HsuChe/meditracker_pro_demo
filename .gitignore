@@ -53,3 +53,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Dummy data files
+dummy_data/*.csv
+dummy_data/*.sql
+dummy_data/*.txt
+dummy_data/__pycache__/
+dummy_data/*.pyc
