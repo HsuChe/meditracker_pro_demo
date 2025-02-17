@@ -1,0 +1,68 @@
+-- Drop indexes first
+DROP INDEX IF EXISTS idx_claims_patient_policy;
+DROP INDEX IF EXISTS idx_claims_patient_name;
+DROP INDEX IF EXISTS idx_claims_patient_state;
+DROP INDEX IF EXISTS idx_claims_date_of_service;
+DROP INDEX IF EXISTS idx_claims_provider_npi;
+DROP INDEX IF EXISTS idx_claims_type_of_bill;
+DROP INDEX IF EXISTS idx_claims_diagnosis_codes;
+DROP INDEX IF EXISTS idx_claims_dummy_place_of_service;
+
+-- Remove columns from claims_dummy table
+ALTER TABLE claims_dummy
+    DROP COLUMN IF EXISTS place_of_service,
+    DROP COLUMN IF EXISTS patient_policy_number,
+    DROP COLUMN IF EXISTS patient_name_first,
+    DROP COLUMN IF EXISTS patient_name_last,
+    DROP COLUMN IF EXISTS patient_address_state,
+    DROP COLUMN IF EXISTS patient_account_number,
+    DROP COLUMN IF EXISTS employment_status,
+    DROP COLUMN IF EXISTS insurance_plan,
+    DROP COLUMN IF EXISTS secondary_insurance,
+    DROP COLUMN IF EXISTS accept_assignment,
+    DROP COLUMN IF EXISTS accident_type,
+    DROP COLUMN IF EXISTS referring_provider_npi,
+    DROP COLUMN IF EXISTS rendering_provider_npi,
+    DROP COLUMN IF EXISTS tax_id,
+    DROP COLUMN IF EXISTS service_facilities_state,
+    DROP COLUMN IF EXISTS service_facilities_npi,
+    DROP COLUMN IF EXISTS billing_provider_phone,
+    DROP COLUMN IF EXISTS billing_provider_npi,
+    DROP COLUMN IF EXISTS outside_lab,
+    DROP COLUMN IF EXISTS lab_service_charge,
+    DROP COLUMN IF EXISTS diagnosis_code_2,
+    DROP COLUMN IF EXISTS diagnosis_code_3,
+    DROP COLUMN IF EXISTS diagnosis_code_4,
+    DROP COLUMN IF EXISTS diagnosis_code_5,
+    DROP COLUMN IF EXISTS diagnosis_code_6,
+    DROP COLUMN IF EXISTS diagnosis_code_7,
+    DROP COLUMN IF EXISTS diagnosis_code_8,
+    DROP COLUMN IF EXISTS diagnosis_code_9,
+    DROP COLUMN IF EXISTS diagnosis_code_10,
+    DROP COLUMN IF EXISTS diagnosis_code_11,
+    DROP COLUMN IF EXISTS diagnosis_code_12,
+    DROP COLUMN IF EXISTS diagnosis_pointers,
+    DROP COLUMN IF EXISTS prior_auth_number,
+    DROP COLUMN IF EXISTS date_of_service,
+    DROP COLUMN IF EXISTS emg_indicator,
+    DROP COLUMN IF EXISTS units_days,
+    DROP COLUMN IF EXISTS line_charges,
+    DROP COLUMN IF EXISTS amount_paid,
+    DROP COLUMN IF EXISTS balance_due,
+    DROP COLUMN IF EXISTS type_of_bill,
+    DROP COLUMN IF EXISTS type_of_admission_visit,
+    DROP COLUMN IF EXISTS source_of_admission,
+    DROP COLUMN IF EXISTS condition_code_1,
+    DROP COLUMN IF EXISTS condition_code_2,
+    DROP COLUMN IF EXISTS condition_code_3,
+    DROP COLUMN IF EXISTS condition_code_4,
+    DROP COLUMN IF EXISTS condition_code_5,
+    DROP COLUMN IF EXISTS condition_code_6,
+    DROP COLUMN IF EXISTS condition_code_7,
+    DROP COLUMN IF EXISTS condition_code_8,
+    DROP COLUMN IF EXISTS condition_code_9,
+    DROP COLUMN IF EXISTS condition_code_10,
+    DROP COLUMN IF EXISTS occurrence_code_1,
+    DROP COLUMN IF EXISTS occurrence_code_2,
+    DROP COLUMN IF EXISTS occurrence_code_3,
+    DROP COLUMN IF EXISTS occurrence_code_4; 

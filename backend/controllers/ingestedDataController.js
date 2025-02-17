@@ -138,6 +138,141 @@ const getIngestedDataById = async (req, res) => {
   }
 };
 
+// Function to fetch column constraints from the database
+const getColumnConstraints = async (client, tableName) => {
+  const query = `
+    SELECT 
+      c.column_name,
+      c.data_type,
+      c.character_maximum_length,
+      c.numeric_precision,
+      c.numeric_scale,
+      c.is_nullable,
+      pg_get_constraintdef(con.oid) as check_constraint
+    FROM information_schema.columns c
+    LEFT JOIN pg_constraint con ON con.conrelid = (SELECT oid FROM pg_class WHERE relname = $1)
+    AND con.contype = 'c'
+    AND array_position(con.conkey, c.ordinal_position) IS NOT NULL
+    WHERE c.table_name = $1;
+  `;
+  
+  const result = await client.query(query, [tableName]);
+  return result.rows.reduce((acc, row) => {
+    if (!acc[row.column_name]) {
+      acc[row.column_name] = {
+        dataType: row.data_type,
+        maxLength: row.character_maximum_length,
+        precision: row.numeric_precision,
+        scale: row.numeric_scale,
+        isNullable: row.is_nullable === 'YES',
+        checkConstraints: []
+      };
+    }
+    if (row.check_constraint) {
+      acc[row.column_name].checkConstraints.push(row.check_constraint);
+    }
+    return acc;
+  }, {});
+};
+
+// Function to validate and transform a value based on constraints
+const validateAndTransformValue = (value, column, constraints) => {
+  if (value === '' || value === 'null' || value === 'nan' || value === undefined || value === null) {
+    return constraints.isNullable ? null : value;
+  }
+
+  const strValue = String(value);
+
+  switch (constraints.dataType) {
+    case 'timestamp':
+    case 'timestamp without time zone':
+    case 'timestamp with time zone':
+      if (!value || value === '' || value === 'null' || value === 'nan') return null;
+      try {
+        // Handle numeric timestamps (Unix timestamps)
+        if (!isNaN(value)) {
+          const timestamp = new Date(Number(value) * 1000);
+          if (timestamp.toString() === 'Invalid Date') return null;
+          return timestamp.toISOString();
+        }
+        // Handle string dates
+        const timestamp = new Date(value);
+        if (timestamp.toString() === 'Invalid Date') return null;
+        return timestamp.toISOString();
+      } catch (e) {
+        console.log(`WARNING: Invalid timestamp value: ${value}`);
+        return null;
+      }
+
+    case 'date':
+      if (!value || value === '' || value === 'null' || value === 'nan') return null;
+      try {
+        // Handle numeric dates (Unix timestamps)
+        if (!isNaN(value)) {
+          const date = new Date(Number(value) * 1000);
+          if (date.toString() === 'Invalid Date') return null;
+          return date.toISOString().split('T')[0];
+        }
+        // Handle string dates
+        const date = new Date(value);
+        if (date.toString() === 'Invalid Date') return null;
+        return date.toISOString().split('T')[0];
+      } catch (e) {
+        console.log(`WARNING: Invalid date value: ${value}`);
+        return null;
+      }
+
+    case 'boolean':
+      if (['t', 'true', '1', 'y', 'yes'].includes(strValue.toLowerCase())) return true;
+      if (['f', 'false', '0', 'n', 'no'].includes(strValue.toLowerCase())) return false;
+      return null;
+
+    case 'integer':
+    case 'bigint':
+      const num = Number(value);
+      if (isNaN(num)) return null;
+      
+      // Check numeric constraints if they exist
+      for (const constraint of constraints.checkConstraints) {
+        if (constraint.includes('BETWEEN') || constraint.includes('>=') || constraint.includes('<=')) {
+          const [min, max] = constraint.match(/\d+/g).map(Number);
+          if (num < min || num > max) return null;
+        }
+      }
+      return Math.floor(num);
+
+    case 'numeric':
+    case 'decimal':
+      const decNum = Number(value);
+      if (isNaN(decNum)) return null;
+      return decNum;
+
+    case 'character varying':
+      // Check length constraint
+      if (constraints.maxLength && strValue.length > constraints.maxLength) {
+        return null;
+      }
+      
+      // Check pattern constraints if they exist
+      for (const constraint of constraints.checkConstraints) {
+        if (constraint.includes('~')) {
+          const pattern = constraint.match(/'([^']+)'/)[1];
+          if (!new RegExp(pattern).test(strValue)) return null;
+        } else if (constraint.includes('IN')) {
+          const values = constraint.match(/'([^']+)'/g).map(v => v.replace(/'/g, ''));
+          if (!values.includes(strValue)) return null;
+        } else if (constraint.includes('>=') && constraint.includes('<=')) {
+          const [min, max] = constraint.match(/'\d+'/g).map(v => v.replace(/'/g, ''));
+          if (strValue < min || strValue > max) return null;
+        }
+      }
+      return strValue;
+
+    default:
+      return value;
+  }
+};
+
 const createIngestedData = async (req, res) => {
   const client = await pool.connect();
   try {
@@ -149,10 +284,13 @@ const createIngestedData = async (req, res) => {
       file_size_bytes,
       batch_number,
       total_batches,
-      parent_ingestion_id  // This will be null for first batch
+      parent_ingestion_id
     } = req.body;
 
     await client.query('BEGIN');
+
+    // Get column constraints
+    const columnConstraints = await getColumnConstraints(client, 'claims_dummy');
 
     // If this is the first batch (batch_number === 1), create parent record
     let parentId = parent_ingestion_id;
@@ -189,14 +327,19 @@ const createIngestedData = async (req, res) => {
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const columns = Object.keys(row);
-      const values = Object.values(row);
       
-      await client.query(
-        `INSERT INTO claims_dummy 
+      const values = Object.entries(row).map(([column, value]) => {
+        const constraints = columnConstraints[column];
+        if (!constraints) return value; // Column not found in constraints
+        
+        return validateAndTransformValue(value, column, constraints);
+      });
+      
+      const query = `INSERT INTO claims_dummy 
          (${columns.join(', ')}, ingestion_id)
-         VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}, $${columns.length + 1})`,
-        [...values, ingestionId]
-      );
+         VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}, $${columns.length + 1})`;
+      
+      await client.query(query, [...values, ingestionId]);
     }
 
     // Update status if this is the last batch
