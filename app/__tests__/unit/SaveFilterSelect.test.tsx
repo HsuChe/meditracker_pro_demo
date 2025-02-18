@@ -7,25 +7,40 @@ import { SavedFilter } from '@/app/filter/types';
 describe('SavedFiltersSelect', () => {
   const mockSavedFilters: SavedFilter[] = [
     {
-      id: 1,
+      filter_id: 1,
       name: 'Test Filter 1',
       description: 'First test filter description',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      conditions: [],
+      claims_ids: [],
+      is_favorite: false,
+      created_by: 'test_user',
+      last_updated: new Date().toISOString(),
+      run_count: 0,
+      last_run: undefined
     },
     {
-      id: 2,
+      filter_id: 2,
       name: 'Test Filter 2',
       description: 'Second test filter description',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      conditions: [],
+      claims_ids: [],
+      is_favorite: false,
+      created_by: 'test_user',
+      last_updated: new Date().toISOString(),
+      run_count: 0,
+      last_run: undefined
     },
     {
-      id: 3,
+      filter_id: 3,
       name: 'Another Filter',
       description: 'Third test filter',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      conditions: [],
+      claims_ids: [],
+      is_favorite: false,
+      created_by: 'test_user',
+      last_updated: new Date().toISOString(),
+      run_count: 0,
+      last_run: undefined
     }
   ];
 

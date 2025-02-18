@@ -49,9 +49,16 @@ interface SearchFilters {
 interface IngestionTableProps {
   refreshTrigger?: number;
   activeTab: 'csv' | 'lut';
+  onDeleteAll?: (ids: string[]) => void;
+  onFilter?: (searchTerm: string) => void;
 }
 
-export function IngestionTable({ refreshTrigger = 0, activeTab }: IngestionTableProps) {
+export function IngestionTable({ 
+  refreshTrigger = 0, 
+  activeTab,
+  onDeleteAll,
+  onFilter 
+}: IngestionTableProps) {
   const [ingestedData, setIngestedData] = useState<GroupedIngestedData[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);

@@ -39,7 +39,7 @@ const SavedFiltersSelect: React.FC<SavedFiltersSelectProps> = ({
             <CommandGroup>
               {savedFilters.map((filter) => (
                 <CommandItem
-                  key={filter.id}
+                  key={filter.filter_id}
                   value={filter.name}
                   onSelect={onFilterSelect}
                   className="flex justify-between items-center"

@@ -180,6 +180,45 @@ export default function IngestionPage() {
     }
   }, [lutName, lutData]);
 
+  const handleDeleteLUTs = async (ids: string[]) => {
+    try {
+      const response = await fetch('/api/luts/batch', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete LUTs');
+      }
+
+      alert(ids.length === 1 ? 'LUT deleted successfully' : 'LUTs deleted successfully');
+      setRefreshTrigger(prev => prev + 1);
+    } catch (error) {
+      console.error('Error deleting LUTs:', error);
+      alert('Error deleting LUTs: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
+  };
+
+  const handleFilterLUTs = async (searchTerm: string) => {
+    try {
+      const response = await fetch(`/api/luts?search=${encodeURIComponent(searchTerm)}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to filter LUTs');
+      }
+
+      // The IngestionTable component will handle the filtered data
+    } catch (error) {
+      console.error('Error filtering LUTs:', error);
+    }
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-8">Data Ingestion</h1>
@@ -205,16 +244,14 @@ export default function IngestionPage() {
             </TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="csv" className="border-x border-b rounded-t-none">
+        <TabsContent value="csv" data-value="csv" className="border-x border-b rounded-t-none">
           <Card className="border-0 shadow-none">
             <CardHeader>
               <CardTitle>CSV Upload and Mapping</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="csv-file" className="block text-sm font-medium">
-                  Upload CSV File
-                </Label>
+                <Label htmlFor="csv-file">Upload CSV File</Label>
                 <FileInput 
                   id="csv-file" 
                   accept=".csv" 
@@ -258,58 +295,75 @@ export default function IngestionPage() {
               )}
             </CardContent>
           </Card>
+          <div className="mt-6">
+            <IngestionTable
+              refreshTrigger={refreshTrigger}
+              activeTab={activeTab}
+              onDeleteAll={handleDeleteLUTs}
+              onFilter={handleFilterLUTs}
+            />
+          </div>
         </TabsContent>
-        <TabsContent value="lut" className="border-x border-b rounded-t-none">
+
+        <TabsContent value="lut" data-value="lut" className="border-x border-b rounded-t-none">
           <Card className="border-0 shadow-none">
             <CardHeader>
-              <CardTitle>LUT Input</CardTitle>
+              <CardTitle>LUT Management</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="lut-csv-file">Upload LUT CSV File</Label>
-                <FileInput 
-                  id="lut-csv-file" 
-                  accept=".csv" 
-                  onChange={(e) => handleFileUpload(e, true)} 
-                  className="w-full"
-                />
-              </div>
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="lut-name">LUT Name</Label>
                   <Input
                     id="lut-name"
+                    name="lut-name"
                     placeholder="Enter LUT name"
                     value={lutName}
                     onChange={(e) => setLutName(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="lut-data">LUT Data (one entry per line)</Label>
+                  <Label htmlFor="lut-data">LUT Data</Label>
                   <textarea
                     id="lut-data"
-                    className="w-full h-32 p-2 rounded-md border bg-background text-foreground min-h-[80px]"
+                    name="lut-data"
                     placeholder="Enter LUT data (comma-separated values)"
                     value={lutData}
                     onChange={(e) => setLutData(e.target.value)}
+                    className="w-full h-32 p-2 rounded-md border bg-background text-foreground min-h-[80px]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lut-csv-file">Upload LUT CSV File</Label>
+                  <FileInput 
+                    id="lut-csv-file"
+                    name="lut-csv-file"
+                    accept=".csv" 
+                    onChange={(e) => handleFileUpload(e, true)} 
+                    className="w-full"
                   />
                 </div>
                 <Button 
                   onClick={handleLUTSubmit}
                   disabled={!lutName.trim() || !lutData.trim()}
+                  aria-label="Submit LUT"
                 >
                   Submit LUT
                 </Button>
               </div>
             </CardContent>
           </Card>
+
+          <div className="mt-6">
+            <IngestionTable
+              refreshTrigger={refreshTrigger}
+              activeTab={activeTab}
+              onDeleteAll={handleDeleteLUTs}
+              onFilter={handleFilterLUTs}
+            />
+          </div>
         </TabsContent>
       </Tabs>
-
-      <IngestionTable 
-        refreshTrigger={refreshTrigger} 
-        activeTab={activeTab}
-      />
     </div>
   )
 }

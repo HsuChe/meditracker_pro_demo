@@ -2,18 +2,19 @@
 const express = require('express');
 const router = express.Router();
 const {
-    getClaims,
-    getClaimsDataTypes,
-    saveFilter,
     getSavedFilters,
+    saveFilter,
     executeFilter,
-    loadSavedFilterData,
     savedFilterQueryBuilder,
-    runOperatorTests,
-    getDiagnosisCodes,
     deleteFilter,
     deleteAllFilters
 } = require('../controllers/filterController');
+
+const {
+    getClaims,
+    getClaimsDataTypes,
+    getDiagnosisCodes
+} = require('../controllers/claimsController');
 
 // Claims routes
 router.post('/claims', getClaims);  // For filtered data
@@ -38,9 +39,6 @@ router.get('/execute/:filterId', async (req, res) => {
         });
     }
 });
-
-// Test route
-router.get('/test-operators', runOperatorTests);
 
 // Diagnosis codes route
 router.post('/diagnosis-codes', getDiagnosisCodes);

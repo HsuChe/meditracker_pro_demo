@@ -6,25 +6,25 @@ import { ClaimData, ColumnInfo, Statistics } from '@/app/filter/types';
 
 // Mock data
 const mockColumns: ColumnInfo[] = [
-  { name: 'claim_id', displayName: 'Claim ID', dataType: 'string' },
-  { name: 'patient_name', displayName: 'Patient Name', dataType: 'string' },
-  { name: 'amount', displayName: 'Amount', dataType: 'number' }
+  { name: 'claim_id', displayName: 'Claim ID', dataType: 'string', column: 'claim_id' },
+  { name: 'patient_name', displayName: 'Patient Name', dataType: 'string', column: 'patient_name' },
+  { name: 'amount', displayName: 'Amount', dataType: 'number', column: 'amount' }
 ];
 
 const mockClaims: ClaimData[] = [
   {
-    id: '1',
     claim_id: 'CLM001',
+    line_id: '1',
     grouped_data: [
-      { id: '1-1', claim_id: 'CLM001', patient_name: 'John Doe', amount: '100.00' },
-      { id: '1-2', claim_id: 'CLM001', patient_name: 'John Doe', amount: '50.00' }
+      { claim_id: 'CLM001', line_id: '1-1', patient_name: 'John Doe', amount: '100.00' },
+      { claim_id: 'CLM001', line_id: '1-2', patient_name: 'John Doe', amount: '50.00' }
     ]
   },
   {
-    id: '2',
     claim_id: 'CLM002',
+    line_id: '2',
     grouped_data: [
-      { id: '2-1', claim_id: 'CLM002', patient_name: 'Jane Smith', amount: '75.00' }
+      { claim_id: 'CLM002', line_id: '2-1', patient_name: 'Jane Smith', amount: '75.00' }
     ]
   }
 ];

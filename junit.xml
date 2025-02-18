@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="124" failures="0" errors="0" time="19.964">
+  <testsuite name="Query Builder Controller" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="3.747" tests="12">
+    <testcase classname="Query Builder Controller buildWhereClauses should handle empty conditions" name="Query Builder Controller buildWhereClauses should handle empty conditions" time="0.04">
+    </testcase>
+    <testcase classname="Query Builder Controller buildWhereClauses should handle equals operator" name="Query Builder Controller buildWhereClauses should handle equals operator" time="0.003">
+    </testcase>
+    <testcase classname="Query Builder Controller buildWhereClauses should handle contains operator" name="Query Builder Controller buildWhereClauses should handle contains operator" time="0.001">
+    </testcase>
+    <testcase classname="Query Builder Controller buildWhereClauses should handle is_null operator" name="Query Builder Controller buildWhereClauses should handle is_null operator" time="0.009">
+    </testcase>
+    <testcase classname="Query Builder Controller buildWhereClauses should handle numeric comparisons" name="Query Builder Controller buildWhereClauses should handle numeric comparisons" time="0.001">
+    </testcase>
+    <testcase classname="Query Builder Controller extractWhereConditions should extract WHERE clause from query" name="Query Builder Controller extractWhereConditions should extract WHERE clause from query" time="0.001">
+    </testcase>
+    <testcase classname="Query Builder Controller extractWhereConditions should return TRUE when no WHERE clause" name="Query Builder Controller extractWhereConditions should return TRUE when no WHERE clause" time="0.001">
+    </testcase>
+    <testcase classname="Query Builder Controller buildFilterQuery should build basic filter query" name="Query Builder Controller buildFilterQuery should build basic filter query" time="0.001">
+    </testcase>
+    <testcase classname="Query Builder Controller buildFilterQuery should build query without conditions" name="Query Builder Controller buildFilterQuery should build query without conditions" time="0.001">
+    </testcase>
+    <testcase classname="Query Builder Controller buildIdQuery should build query with main conditions only" name="Query Builder Controller buildIdQuery should build query with main conditions only" time="0.001">
+    </testcase>
+    <testcase classname="Query Builder Controller buildIdQuery should build query with main and sub conditions" name="Query Builder Controller buildIdQuery should build query with main and sub conditions" time="0">
+    </testcase>
+    <testcase classname="Query Builder Controller buildOptimizedCombinedQuery should build optimized query with statistics" name="Query Builder Controller buildOptimizedCombinedQuery should build optimized query with statistics" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="Claims Controller" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="3.943" tests="7">
+    <testcase classname="Claims Controller getClaims should return empty claims list when no results" name="Claims Controller getClaims should return empty claims list when no results" time="0.039">
+    </testcase>
+    <testcase classname="Claims Controller getClaims should handle claims with conditions" name="Claims Controller getClaims should handle claims with conditions" time="0.002">
+    </testcase>
+    <testcase classname="Claims Controller getClaimsSchema should return schema information" name="Claims Controller getClaimsSchema should return schema information" time="0.002">
+    </testcase>
+    <testcase classname="Claims Controller getClaimsDataTypes should return mapped data types" name="Claims Controller getClaimsDataTypes should return mapped data types" time="0.001">
+    </testcase>
+    <testcase classname="Claims Controller getClaimsDataTypes should filter out key column when specified" name="Claims Controller getClaimsDataTypes should filter out key column when specified" time="0.013">
+    </testcase>
+    <testcase classname="Claims Controller getDiagnosisCodes should return error for invalid input" name="Claims Controller getDiagnosisCodes should return error for invalid input" time="0.002">
+    </testcase>
+    <testcase classname="Claims Controller getDiagnosisCodes should return grouped diagnosis codes" name="Claims Controller getDiagnosisCodes should return grouped diagnosis codes" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="Filter Controller" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="4.967" tests="11">
+    <testcase classname="Filter Controller getSavedFilters should return paginated filters" name="Filter Controller getSavedFilters should return paginated filters" time="0.023">
+    </testcase>
+    <testcase classname="Filter Controller getSavedFilters should handle search parameter" name="Filter Controller getSavedFilters should handle search parameter" time="0.001">
+    </testcase>
+    <testcase classname="Filter Controller saveFilter should save new filter" name="Filter Controller saveFilter should save new filter" time="0.005">
+    </testcase>
+    <testcase classname="Filter Controller saveFilter should reject duplicate filter names" name="Filter Controller saveFilter should reject duplicate filter names" time="0.001">
+    </testcase>
+    <testcase classname="Filter Controller executeFilter should execute filter with conditions" name="Filter Controller executeFilter should execute filter with conditions" time="0.002">
+    </testcase>
+    <testcase classname="Filter Controller savedFilterQueryBuilder should build query from saved filter" name="Filter Controller savedFilterQueryBuilder should build query from saved filter" time="0.002">
+    </testcase>
+    <testcase classname="Filter Controller savedFilterQueryBuilder should handle non-existent filter" name="Filter Controller savedFilterQueryBuilder should handle non-existent filter" time="0.001">
+    </testcase>
+    <testcase classname="Filter Controller deleteFilter should delete existing filter" name="Filter Controller deleteFilter should delete existing filter" time="0.001">
+    </testcase>
+    <testcase classname="Filter Controller deleteFilter should handle non-existent filter" name="Filter Controller deleteFilter should handle non-existent filter" time="0.001">
+    </testcase>
+    <testcase classname="Filter Controller deleteAllFilters should delete all filters" name="Filter Controller deleteAllFilters should delete all filters" time="0.001">
+    </testcase>
+    <testcase classname="Filter Controller deleteAllFilters should handle database errors" name="Filter Controller deleteAllFilters should handle database errors" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="Database Columns Routes" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="5.331" tests="3">
+    <testcase classname="Database Columns Routes GET / should get all column names from claims_dummy table" name="Database Columns Routes GET / should get all column names from claims_dummy table" time="0.041">
+    </testcase>
+    <testcase classname="Database Columns Routes GET / should handle database errors" name="Database Columns Routes GET / should handle database errors" time="0.009">
+    </testcase>
+    <testcase classname="Database Columns Routes GET / should exclude specified system columns" name="Database Columns Routes GET / should exclude specified system columns" time="0.005">
+    </testcase>
+  </testsuite>
+  <testsuite name="Ingested Data Routes" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="5.437" tests="7">
+    <testcase classname="Ingested Data Routes GET / should get all ingested data" name="Ingested Data Routes GET / should get all ingested data" time="0.049">
+    </testcase>
+    <testcase classname="Ingested Data Routes POST / should create new ingested data" name="Ingested Data Routes POST / should create new ingested data" time="0.03">
+    </testcase>
+    <testcase classname="Ingested Data Routes GET /deleted-records should get deleted records" name="Ingested Data Routes GET /deleted-records should get deleted records" time="0.009">
+    </testcase>
+    <testcase classname="Ingested Data Routes DELETE /clear-all should clear all ingestions" name="Ingested Data Routes DELETE /clear-all should clear all ingestions" time="0.007">
+    </testcase>
+    <testcase classname="Ingested Data Routes GET /:id should get ingested data by id" name="Ingested Data Routes GET /:id should get ingested data by id" time="0.01">
+    </testcase>
+    <testcase classname="Ingested Data Routes PATCH /:id should update ingested data status" name="Ingested Data Routes PATCH /:id should update ingested data status" time="0.006">
+    </testcase>
+    <testcase classname="Ingested Data Routes DELETE /:id should delete ingestion by id" name="Ingested Data Routes DELETE /:id should delete ingestion by id" time="0.005">
+    </testcase>
+  </testsuite>
+  <testsuite name="Claims API Integration Tests" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="10.139" tests="7">
+    <testcase classname="Claims API Integration Tests Mappings API should fetch mapping by ID" name="Claims API Integration Tests Mappings API should fetch mapping by ID" time="0.013">
+    </testcase>
+    <testcase classname="Claims API Integration Tests Mappings API should fetch all mappings" name="Claims API Integration Tests Mappings API should fetch all mappings" time="0.001">
+    </testcase>
+    <testcase classname="Claims API Integration Tests Ingested Data API should submit batch data successfully" name="Claims API Integration Tests Ingested Data API should submit batch data successfully" time="0.001">
+    </testcase>
+    <testcase classname="Claims API Integration Tests Ingested Data API should handle invalid batch data" name="Claims API Integration Tests Ingested Data API should handle invalid batch data" time="0.001">
+    </testcase>
+    <testcase classname="Claims API Integration Tests Ingested Data API should fetch ingested data with pagination" name="Claims API Integration Tests Ingested Data API should fetch ingested data with pagination" time="0.001">
+    </testcase>
+    <testcase classname="Claims API Integration Tests Error Handling should handle non-existent mapping ID" name="Claims API Integration Tests Error Handling should handle non-existent mapping ID" time="0.001">
+    </testcase>
+    <testcase classname="Claims API Integration Tests Error Handling should handle malformed batch data" name="Claims API Integration Tests Error Handling should handle malformed batch data" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="StatisticsPanel" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="14.689" tests="10">
+    <testcase classname="StatisticsPanel renders nothing when statistics are null" name="StatisticsPanel renders nothing when statistics are null" time="0.039">
+    </testcase>
+    <testcase classname="StatisticsPanel renders all statistics sections with correct headings" name="StatisticsPanel renders all statistics sections with correct headings" time="0.047">
+    </testcase>
+    <testcase classname="StatisticsPanel formats unique claims count with commas" name="StatisticsPanel formats unique claims count with commas" time="0.009">
+    </testcase>
+    <testcase classname="StatisticsPanel formats date range correctly" name="StatisticsPanel formats date range correctly" time="0.007">
+    </testcase>
+    <testcase classname="StatisticsPanel shows N/A when date range is missing" name="StatisticsPanel shows N/A when date range is missing" time="0.008">
+    </testcase>
+    <testcase classname="StatisticsPanel formats total allowed amount with currency and decimals" name="StatisticsPanel formats total allowed amount with currency and decimals" time="0.012">
+    </testcase>
+    <testcase classname="StatisticsPanel formats total records with commas" name="StatisticsPanel formats total records with commas" time="0.007">
+    </testcase>
+    <testcase classname="StatisticsPanel handles zero values correctly" name="StatisticsPanel handles zero values correctly" time="0.01">
+    </testcase>
+    <testcase classname="StatisticsPanel handles missing values gracefully" name="StatisticsPanel handles missing values gracefully" time="0.008">
+    </testcase>
+    <testcase classname="StatisticsPanel maintains layout structure with grid classes" name="StatisticsPanel maintains layout structure with grid classes" time="0.007">
+    </testcase>
+  </testsuite>
+  <testsuite name="ClaimsSubmitter" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="16.479" tests="8">
+    <testcase classname="ClaimsSubmitter renders the component with initial state" name="ClaimsSubmitter renders the component with initial state" time="0.11">
+    </testcase>
+    <testcase classname="ClaimsSubmitter updates ingestion name when input changes" name="ClaimsSubmitter updates ingestion name when input changes" time="0.015">
+    </testcase>
+    <testcase classname="ClaimsSubmitter validation and submission shows error when submitting without ingestion name" name="ClaimsSubmitter validation and submission shows error when submitting without ingestion name" time="0.019">
+    </testcase>
+    <testcase classname="ClaimsSubmitter validation and submission shows error when ingestion name is too short" name="ClaimsSubmitter validation and submission shows error when ingestion name is too short" time="0.017">
+    </testcase>
+    <testcase classname="ClaimsSubmitter validation and submission shows error when submitting without mapping ID" name="ClaimsSubmitter validation and submission shows error when submitting without mapping ID" time="0.014">
+    </testcase>
+    <testcase classname="ClaimsSubmitter validation and submission shows error when submitting without CSV data" name="ClaimsSubmitter validation and submission shows error when submitting without CSV data" time="0.01">
+    </testcase>
+    <testcase classname="ClaimsSubmitter successful submission handles successful submission" name="ClaimsSubmitter successful submission handles successful submission" time="0.053">
+    </testcase>
+    <testcase classname="ClaimsSubmitter error handling handles submission failure" name="ClaimsSubmitter error handling handles submission failure" time="0.031">
+    </testcase>
+  </testsuite>
+  <testsuite name="ClaimsTable" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="16.654" tests="11">
+    <testcase classname="ClaimsTable renders the table with correct headers" name="ClaimsTable renders the table with correct headers" time="0.1">
+    </testcase>
+    <testcase classname="ClaimsTable displays loading spinner when isLoading is true" name="ClaimsTable displays loading spinner when isLoading is true" time="0.002">
+    </testcase>
+    <testcase classname="ClaimsTable displays error message when error is present" name="ClaimsTable displays error message when error is present" time="0.001">
+    </testcase>
+    <testcase classname="ClaimsTable displays &quot;No claims found&quot; message when claims array is empty" name="ClaimsTable displays &quot;No claims found&quot; message when claims array is empty" time="0.002">
+    </testcase>
+    <testcase classname="ClaimsTable renders correct number of rows based on claims data" name="ClaimsTable renders correct number of rows based on claims data" time="0.07">
+    </testcase>
+    <testcase classname="ClaimsTable expands row when expansion button is clicked" name="ClaimsTable expands row when expansion button is clicked" time="0.025">
+    </testcase>
+    <testcase classname="ClaimsTable shows expanded rows when expandedRows includes claim_id" name="ClaimsTable shows expanded rows when expandedRows includes claim_id" time="0.031">
+    </testcase>
+    <testcase classname="ClaimsTable handles pagination correctly" name="ClaimsTable handles pagination correctly" time="0.017">
+    </testcase>
+    <testcase classname="ClaimsTable handles page size changes correctly" name="ClaimsTable handles page size changes correctly" time="0.077">
+    </testcase>
+    <testcase classname="ClaimsTable displays correct pagination information" name="ClaimsTable displays correct pagination information" time="0.033">
+    </testcase>
+    <testcase classname="ClaimsTable disables pagination buttons appropriately" name="ClaimsTable disables pagination buttons appropriately" time="0.021">
+    </testcase>
+  </testsuite>
+  <testsuite name="MappingManager" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="16.544" tests="8">
+    <testcase classname="MappingManager renders the component with initial state" name="MappingManager renders the component with initial state" time="0.09">
+    </testcase>
+    <testcase classname="MappingManager handles saving new mapping" name="MappingManager handles saving new mapping" time="0.105">
+    </testcase>
+    <testcase classname="MappingManager handles loading a saved mapping" name="MappingManager handles loading a saved mapping" time="0.059">
+    </testcase>
+    <testcase classname="MappingManager handles database column selection" name="MappingManager handles database column selection" time="0.016">
+    </testcase>
+    <testcase classname="MappingManager displays current mappings in the table" name="MappingManager displays current mappings in the table" time="0.011">
+    </testcase>
+    <testcase classname="MappingManager loads saved mappings from the server" name="MappingManager loads saved mappings from the server" time="0.019">
+    </testcase>
+    <testcase classname="MappingManager handles error states gracefully" name="MappingManager handles error states gracefully" time="0.016">
+    </testcase>
+    <testcase classname="MappingManager sorts mappings alphabetically by CSV column" name="MappingManager sorts mappings alphabetically by CSV column" time="0.026">
+    </testcase>
+  </testsuite>
+  <testsuite name="SaveFilterDialog" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="16.666" tests="11">
+    <testcase classname="SaveFilterDialog renders dialog content when open is true" name="SaveFilterDialog renders dialog content when open is true" time="0.13">
+    </testcase>
+    <testcase classname="SaveFilterDialog does not render dialog content when open is false" name="SaveFilterDialog does not render dialog content when open is false" time="0.003">
+    </testcase>
+    <testcase classname="SaveFilterDialog displays initial values in input fields" name="SaveFilterDialog displays initial values in input fields" time="0.038">
+    </testcase>
+    <testcase classname="SaveFilterDialog calls onNameChange when name input changes" name="SaveFilterDialog calls onNameChange when name input changes" time="0.028">
+    </testcase>
+    <testcase classname="SaveFilterDialog calls onDescriptionChange when description input changes" name="SaveFilterDialog calls onDescriptionChange when description input changes" time="0.024">
+    </testcase>
+    <testcase classname="SaveFilterDialog disables save button when filterName is empty" name="SaveFilterDialog disables save button when filterName is empty" time="0.044">
+    </testcase>
+    <testcase classname="SaveFilterDialog enables save button when filterName is not empty" name="SaveFilterDialog enables save button when filterName is not empty" time="0.032">
+    </testcase>
+    <testcase classname="SaveFilterDialog calls onSave when save button is clicked" name="SaveFilterDialog calls onSave when save button is clicked" time="0.028">
+    </testcase>
+    <testcase classname="SaveFilterDialog calls onOpenChange with false when cancel button is clicked" name="SaveFilterDialog calls onOpenChange with false when cancel button is clicked" time="0.032">
+    </testcase>
+    <testcase classname="SaveFilterDialog has correct accessibility attributes" name="SaveFilterDialog has correct accessibility attributes" time="0.021">
+    </testcase>
+    <testcase classname="SaveFilterDialog allows description to be optional" name="SaveFilterDialog allows description to be optional" time="0.071">
+    </testcase>
+  </testsuite>
+  <testsuite name="SavedFiltersSelect" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="17.077" tests="9">
+    <testcase classname="SavedFiltersSelect renders the select component with correct text" name="SavedFiltersSelect renders the select component with correct text" time="0.14">
+    </testcase>
+    <testcase classname="SavedFiltersSelect displays all saved filters in the dropdown" name="SavedFiltersSelect displays all saved filters in the dropdown" time="0.096">
+    </testcase>
+    <testcase classname="SavedFiltersSelect shows selected filter in the trigger" name="SavedFiltersSelect shows selected filter in the trigger" time="0.024">
+    </testcase>
+    <testcase classname="SavedFiltersSelect calls onFilterSelect when a filter is selected" name="SavedFiltersSelect calls onFilterSelect when a filter is selected" time="0.163">
+    </testcase>
+    <testcase classname="SavedFiltersSelect calls onDeleteFilter when delete button is clicked" name="SavedFiltersSelect calls onDeleteFilter when delete button is clicked" time="0.063">
+    </testcase>
+    <testcase classname="SavedFiltersSelect prevents filter selection when clicking delete button" name="SavedFiltersSelect prevents filter selection when clicking delete button" time="0.047">
+    </testcase>
+    <testcase classname="SavedFiltersSelect filters the list when searching" name="SavedFiltersSelect filters the list when searching" time="0.041">
+    </testcase>
+    <testcase classname="SavedFiltersSelect shows &quot;No filter found&quot; message when search has no results" name="SavedFiltersSelect shows &quot;No filter found&quot; message when search has no results" time="0.035">
+    </testcase>
+    <testcase classname="SavedFiltersSelect shows check icon for selected filter" name="SavedFiltersSelect shows check icon for selected filter" time="0.103">
+    </testcase>
+  </testsuite>
+  <testsuite name="IngestionTable" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="17.854" tests="10">
+    <testcase classname="IngestionTable renders the component with initial state" name="IngestionTable renders the component with initial state" time="0.142">
+    </testcase>
+    <testcase classname="IngestionTable displays ingested data in grouped format" name="IngestionTable displays ingested data in grouped format" time="0.036">
+    </testcase>
+    <testcase classname="IngestionTable handles group expansion correctly" name="IngestionTable handles group expansion correctly" time="0.037">
+    </testcase>
+    <testcase classname="IngestionTable filters data by name" name="IngestionTable filters data by name" time="0.035">
+    </testcase>
+    <testcase classname="IngestionTable handles delete operations" name="IngestionTable handles delete operations" time="0.063">
+    </testcase>
+    <testcase classname="IngestionTable handles clear all operation" name="IngestionTable handles clear all operation" time="0.046">
+    </testcase>
+    <testcase classname="IngestionTable handles pagination" name="IngestionTable handles pagination" time="0.048">
+    </testcase>
+    <testcase classname="IngestionTable handles error states gracefully" name="IngestionTable handles error states gracefully" time="0.015">
+    </testcase>
+    <testcase classname="IngestionTable formats file sizes correctly" name="IngestionTable formats file sizes correctly" time="0.016">
+    </testcase>
+    <testcase classname="IngestionTable handles date range filtering" name="IngestionTable handles date range filtering" time="0.01">
+    </testcase>
+  </testsuite>
+  <testsuite name="FilterKeys" errors="0" failures="0" skipped="0" timestamp="2025-02-18T02:35:15" time="17.882" tests="10">
+    <testcase classname="FilterKeys renders the component with initial state" name="FilterKeys renders the component with initial state" time="0.04">
+    </testcase>
+    <testcase classname="FilterKeys adds a main key correctly" name="FilterKeys adds a main key correctly" time="0.008">
+    </testcase>
+    <testcase classname="FilterKeys renders nested structure correctly" name="FilterKeys renders nested structure correctly" time="0.08">
+    </testcase>
+    <testcase classname="FilterKeys handles condition removal correctly" name="FilterKeys handles condition removal correctly" time="0.071">
+    </testcase>
+    <testcase classname="FilterKeys updates sub key column correctly" name="FilterKeys updates sub key column correctly" time="0.06">
+    </testcase>
+    <testcase classname="FilterKeys maintains correct hierarchy in the DOM" name="FilterKeys maintains correct hierarchy in the DOM" time="0.047">
+    </testcase>
+    <testcase classname="FilterKeys adds conditions to correct keys" name="FilterKeys adds conditions to correct keys" time="0.004">
+    </testcase>
+    <testcase classname="FilterKeys handles key removal correctly" name="FilterKeys handles key removal correctly" time="0.012">
+    </testcase>
+    <testcase classname="FilterKeys renders correct operators based on column type" name="FilterKeys renders correct operators based on column type" time="0.03">
+    </testcase>
+    <testcase classname="FilterKeys handles drag and drop operations" name="FilterKeys handles drag and drop operations" time="0.024">
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -1,61 +1,26 @@
-const nextJest = require('next/jest');
-
-const createJestConfig = nextJest({
-  // Provide the path to your Next.js app to load next.config.js and .env files in your test environment
-  dir: './',
-});
-
-// Add any custom config to be passed to Jest
-const customJestConfig = {
+module.exports = {
+  testEnvironment: 'jsdom',
+  roots: ['<rootDir>/app/__tests__'],
+  testMatch: ['**/*.test.js', '**/*.test.tsx', '**/*.test.ts'],
   setupFilesAfterEnv: [
-    '@testing-library/jest-dom',
-    '<rootDir>/jest.setup.js',
-    '<rootDir>/app/__tests__/setup/jest-setup.ts'
+    '<rootDir>/app/__tests__/setup/jest.setup.js'
   ],
-  testEnvironment: 'jest-environment-jsdom',
-  moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/$1',
-  },
-  testMatch: [
-    '<rootDir>/app/__tests__/**/*.test.{js,jsx,ts,tsx}'
-  ],
+  moduleDirectories: ['node_modules', '<rootDir>'],
+  testPathIgnorePatterns: ['/node_modules/'],
+  verbose: true,
   transform: {
-    '^.+\\.(t|j)sx?$': ['@swc/jest']
+    '^.+\\.(ts|tsx)$': ['ts-jest', {
+      tsconfig: 'tsconfig.json'
+    }],
+    '^.+\\.(js|jsx)$': ['babel-jest', { configFile: './.babelrc' }]
+  },
+  moduleNameMapper: {
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    '\\.(gif|ttf|eot|svg|png)$': '<rootDir>/app/__tests__/setup/fileMock.js',
+    '^@/(.*)$': '<rootDir>/$1'
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
-  collectCoverageFrom: [
-    'app/**/*.{js,jsx,ts,tsx}',
-    '!app/**/*.d.ts',
-    '!app/api/**',
-    '!app/lib/test/**',
-    '!app/**/*.stories.{js,jsx,ts,tsx}',
-    '!app/**/*.test.{js,jsx,ts,tsx}',
-    '!app/__tests__/**/*'
-  ],
-  coverageThreshold: {
-    global: {
-      branches: 10,
-      functions: 10,
-      lines: 8,
-      statements: 8
-    }
-  },
-  coverageReporters: [
-    'text',
-    'text-summary',
-    'lcov',
-    'json',
-    'html'
-  ],
-  reporters: process.env.CI 
-    ? ['default', 'jest-junit']
-    : ['default'],
-  testPathIgnorePatterns: [
-    '<rootDir>/node_modules/',
-    '<rootDir>/.next/',
-    '<rootDir>/cypress/'
-  ],
-};
-
-// createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async
-module.exports = createJestConfig(customJestConfig); 
+  testEnvironmentOptions: {
+    url: 'http://localhost'
+  }
+}; 

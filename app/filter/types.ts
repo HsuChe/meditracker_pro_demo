@@ -7,17 +7,21 @@ export interface ClaimRecord {
   [key: string]: any;
 }
 
-export interface ClaimData extends ClaimRecord {
+export interface ClaimData {
   claim_id: string;
-  grouped_data: ClaimRecord[];
+  line_id: string;
+  admission_date?: string;
+  allowed_amount?: number;
+  grouped_data?: any[];
 }
 
 export interface FilterCondition {
   id: string;
+  key: string;
   column: string;
   operator: string;
-  value: string | number | null;
-  secondValue?: BetweenDateValue | string | number | null;
+  value: any;
+  secondValue?: any;
   lutValue?: string;
 }
 
@@ -29,6 +33,9 @@ export interface BetweenDateValue {
 
 export interface FilterKey {
   id: string;
+  key: string;
+  label: string;
+  type: string;
   keyType: 'main' | 'sub' | null;
   keyColumn: string;
   conditions: FilterCondition[];
@@ -36,11 +43,14 @@ export interface FilterKey {
 }
 
 export interface SavedFilter {
-  id: number;
+  filter_id: number;
   name: string;
   description: string;
-  keyColumns: string[];
-  filterKeys: FilterKey[];
+  conditions: FilterCondition[];
+  claims_ids: string[];
+  is_favorite: boolean;
+  created_by: string;
+  last_updated: string;
   run_count?: number;
   last_run?: string;
 }
@@ -83,6 +93,7 @@ export interface BackendFilterCondition {
 export type DataType = 'string' | 'number' | 'date' | 'boolean';
 
 export interface ColumnInfo {
+  column: string;
   name: string;
   displayName: string;
   dataType: DataType;

@@ -16,25 +16,29 @@ jest.mock('@dnd-kit/core', () => ({
 }));
 
 const mockColumns: ColumnInfo[] = [
-  { name: 'claim_id', displayName: 'Claim ID', dataType: 'string' },
-  { name: 'patient_name', displayName: 'Patient Name', dataType: 'string' },
-  { name: 'amount', displayName: 'Amount', dataType: 'number' },
-  { name: 'date', displayName: 'Date', dataType: 'date' }
+  { name: 'claim_id', displayName: 'Claim ID', dataType: 'string', column: 'claim_id' },
+  { name: 'patient_name', displayName: 'Patient Name', dataType: 'string', column: 'patient_name' },
+  { name: 'amount', displayName: 'Amount', dataType: 'number', column: 'amount' },
+  { name: 'date', displayName: 'Date', dataType: 'date', column: 'date' }
 ];
 
-const createMockFilterKey = (id: string, type: 'main' | 'sub' | null = null): FilterKey => ({
-  id,
+const createMockFilterKey = (keyId: string, type: 'main' | 'sub' | null = null): FilterKey => ({
+  id: keyId,
+  key: keyId,
+  label: type === 'sub' ? 'Sub Key' : 'Main Key',
+  type: type || 'root',
   keyType: type,
   keyColumn: type === 'sub' ? 'patient_name' : 'claim_id',
   conditions: [],
   children: []
 });
 
-const createMockCondition = (id: string, column: string = 'claim_id'): FilterCondition => ({
-  id,
+const createMockCondition = (conditionId: string, column: string = 'claim_id'): FilterCondition => ({
+  id: conditionId,
+  key: conditionId,
   column,
   operator: 'equals',
-  value: null,
+  value: null
 });
 
 describe('FilterKeys', () => {
