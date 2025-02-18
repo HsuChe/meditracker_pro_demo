@@ -27,7 +27,7 @@ const SavedFiltersSelect: React.FC<SavedFiltersSelectProps> = ({
         value={selectedFilter || ""}
         onValueChange={onFilterSelect}
       >
-        <SelectTrigger className="w-full">
+        <SelectTrigger className="w-full" id="saved-filters">
           <SelectValue>
             {selectedFilter || "Select a saved filter..."}
           </SelectValue>
@@ -39,9 +39,9 @@ const SavedFiltersSelect: React.FC<SavedFiltersSelectProps> = ({
             <CommandGroup>
               {savedFilters.map((filter) => (
                 <CommandItem
-                  key={filter.filter_id}
+                  key={`${filter.filter_id}-${filter.name}`}
                   value={filter.name}
-                  onSelect={onFilterSelect}
+                  onSelect={() => onFilterSelect(filter.name)}
                   className="flex justify-between items-center"
                 >
                   <div className="flex items-center">

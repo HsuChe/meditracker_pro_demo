@@ -409,40 +409,158 @@ const deleteIngestion = async (req, res) => {
     await client.query('BEGIN');
     
     const { id } = req.params;
-    const { deleted_by, deletion_reason } = req.body; // Add these to the request
+    const { deleted_by, deletion_reason } = req.body;
 
-    // First, copy records to the deleted_claims_log before deleting
-    await client.query(`
-      INSERT INTO deleted_claims_log (
-        claim_dummy_id, claim_id, line_id, ingestion_id, 
-        deleted_by, deletion_reason, record_data
-      )
-      SELECT 
-        id, claim_id, line_id, ingestion_id,
-        $1, $2, row_to_json(claims_dummy)
-      FROM claims_dummy
-      WHERE ingestion_id = $3
-    `, [deleted_by || 'system', deletion_reason || 'Ingestion deleted', id]);
-
-    // Then delete the claims
-    await client.query(
-      'DELETE FROM claims_dummy WHERE ingestion_id = $1',
+    // First check if this is a parent ingestion and get its type
+    const ingestionCheck = await client.query(
+      `SELECT type, parent_ingestion_id 
+       FROM ingested_data 
+       WHERE ingested_data_id = $1`,
       [id]
     );
+
+    if (ingestionCheck.rows.length === 0) {
+      throw new Error('Ingestion record not found');
+    }
+
+    const { type, parent_ingestion_id } = ingestionCheck.rows[0];
+    const isParent = parent_ingestion_id === null;
+
+    // If this is a parent record, we need to delete all child records first
+    if (isParent) {
+      if (type === 'lut') {
+        // For LUT ingestions, delete entries first
+        await client.query(
+          'DELETE FROM lut_entries WHERE ingestion_id = $1',
+          [id]
+        );
+      } else {
+        // For claims ingestions, copy to deleted_claims_log first
+        await client.query(`
+          INSERT INTO deleted_claims_log (
+            claim_dummy_id, claim_id, line_id, ingestion_id, 
+            deleted_by, deletion_reason, record_data
+          )
+          SELECT 
+            id, claim_id, line_id, ingestion_id,
+            $1, $2, row_to_json(claims_dummy)
+          FROM claims_dummy
+          WHERE ingestion_id = $3
+        `, [deleted_by || 'system', deletion_reason || 'Ingestion deleted', id]);
+
+        // Then delete the claims
+        await client.query(
+          'DELETE FROM claims_dummy WHERE ingestion_id = $1',
+          [id]
+        );
+      }
+
+      // Delete all child ingestion records
+      await client.query(
+        'DELETE FROM ingested_data WHERE parent_ingestion_id = $1',
+        [id]
+      );
+    }
     
-    // Delete the ingestion record
+    // Finally delete the ingestion record itself
     await client.query(
       'DELETE FROM ingested_data WHERE ingested_data_id = $1',
       [id]
     );
     
     await client.query('COMMIT');
-    res.json({ message: 'Ingestion and associated claims deleted successfully' });
+    res.json({ 
+      message: `${type === 'lut' ? 'LUT' : 'Ingestion'} and associated ${type === 'lut' ? 'entries' : 'claims'} deleted successfully`,
+      deletedId: id
+    });
     
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error in deleteIngestion:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message,
+      code: error.code,
+      constraint: error.constraint
+    });
+  } finally {
+    client.release();
+  }
+};
+
+const deleteIngestionByName = async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    const { name } = req.params;
+    const { deleted_by, deletion_reason } = req.body;
+
+    // First get all ingestion records with this name
+    const ingestionCheck = await client.query(
+      `SELECT ingested_data_id, type, parent_ingestion_id 
+       FROM ingested_data 
+       WHERE name = $1`,
+      [name]
+    );
+
+    if (ingestionCheck.rows.length === 0) {
+      throw new Error('No ingestion records found with this name');
+    }
+
+    const type = ingestionCheck.rows[0].type;
+    const ingestionIds = ingestionCheck.rows.map(row => row.ingested_data_id);
+
+    if (type === 'lut') {
+      // For LUT ingestions, delete entries first
+      await client.query(
+        'DELETE FROM lut_entries WHERE ingestion_id = ANY($1)',
+        [ingestionIds]
+      );
+    } else {
+      // For claims ingestions, copy to deleted_claims_log first
+      await client.query(`
+        INSERT INTO deleted_claims_log (
+          claim_dummy_id, claim_id, line_id, ingestion_id, 
+          deleted_by, deletion_reason, record_data
+        )
+        SELECT 
+          id, claim_id, line_id, ingestion_id,
+          $1, $2, row_to_json(claims_dummy)
+        FROM claims_dummy
+        WHERE ingestion_id = ANY($3)
+      `, [deleted_by || 'system', deletion_reason || 'Ingestion deleted', ingestionIds]);
+
+      // Then delete the claims
+      await client.query(
+        'DELETE FROM claims_dummy WHERE ingestion_id = ANY($1)',
+        [ingestionIds]
+      );
+    }
+
+    // Delete all ingestion records with this name
+    await client.query(
+      'DELETE FROM ingested_data WHERE name = $1',
+      [name]
+    );
+    
+    await client.query('COMMIT');
+    res.json({ 
+      message: `All ${type === 'lut' ? 'LUT' : 'Ingestion'} batches and associated ${type === 'lut' ? 'entries' : 'claims'} deleted successfully`,
+      deletedName: name,
+      batchesDeleted: ingestionCheck.rows.length
+    });
+    
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error in deleteIngestionByName:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message,
+      code: error.code,
+      constraint: error.constraint
+    });
   } finally {
     client.release();
   }
@@ -454,7 +572,7 @@ const clearAllIngestions = async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    // First, copy all records to the deleted_claims_log
+    // First, copy all claims records to the deleted_claims_log
     await client.query(`
       INSERT INTO deleted_claims_log (
         claim_dummy_id, claim_id, line_id, ingestion_id, 
@@ -469,11 +587,20 @@ const clearAllIngestions = async (req, res) => {
     // Delete LUT entries first due to foreign key constraint
     await client.query('DELETE FROM lut_entries');
 
-    // Then delete all claims data
+    // Delete all claims data
     await client.query('DELETE FROM claims_dummy');
     
-    // Finally delete all ingestion records
-    await client.query('DELETE FROM ingested_data');
+    // Delete child ingestion records first (where parent_ingestion_id is not null)
+    await client.query(`
+      DELETE FROM ingested_data 
+      WHERE parent_ingestion_id IS NOT NULL
+    `);
+    
+    // Finally delete parent ingestion records
+    await client.query(`
+      DELETE FROM ingested_data 
+      WHERE parent_ingestion_id IS NULL
+    `);
     
     await client.query('COMMIT');
     res.json({ message: 'All ingestion data cleared successfully' });
@@ -481,7 +608,12 @@ const clearAllIngestions = async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error clearing ingestion data:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message,
+      code: error.code,
+      constraint: error.constraint 
+    });
   } finally {
     client.release();
   }
@@ -537,6 +669,7 @@ module.exports = {
   createIngestedData,
   updateIngestedDataStatus,
   deleteIngestion,
+  deleteIngestionByName,
   clearAllIngestions,
   getDeletedRecords
 }; 

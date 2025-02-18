@@ -36,15 +36,22 @@ export default function FilterPage() {
   const [filterDescription, setFilterDescription] = useState("")
   const [filterKeys, setFilterKeys] = useState<FilterKey[]>([{
     id: "root",
+    key: "root",
+    label: "Root",
+    type: "group",
     keyType: null,
     keyColumn: "",
     conditions: [],
     children: [{
       id: "group1",
+      key: "main",
+      label: "Main Filter",
+      type: "group",
       keyType: 'main',
       keyColumn: 'claim_id',
       conditions: [{
         id: "condition1",
+        key: "claim_id",
         column: "",
         operator: "equals",
         value: null
@@ -53,7 +60,7 @@ export default function FilterPage() {
     }]
   }])
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([])
-  const [selectedSavedFilter, setSelectedSavedFilter] = useState<string | null>(null)
+  const [selectedFilter, setSelectedFilter] = useState<string | null>(null)
   const [claims, setClaims] = useState<ClaimData[]>([])
   const [columns, setColumns] = useState<ColumnInfo[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -68,6 +75,7 @@ export default function FilterPage() {
   const [lutNames, setLutNames] = useState<string[]>([])
   const [ingestedData, setIngestedData] = useState<IngestedDataResponse>({ records: [] })
   const [diagnosisCodes, setDiagnosisCodes] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
 
   // Memoize the ingested IDs array
   const ingestedLutIds = useMemo(() => 
@@ -142,17 +150,18 @@ export default function FilterPage() {
 
           const columnInfo: ColumnInfo[] = columnTypes.data
             .map(({ column, type }) => ({
+              column,
               name: column,
               displayName: formatColumnName(column),
               dataType: type
             }))
             .sort((a, b) => {
-              if (a.name === 'claim_id') return -1
-              if (b.name === 'claim_id') return 1
-              if (a.name === 'line_id') return -1
-              if (b.name === 'line_id') return 1
-              return a.displayName.localeCompare(b.displayName)
-            })
+              if (a.name === 'claim_id') return -1;
+              if (b.name === 'claim_id') return 1;
+              if (a.name === 'line_id') return -1;
+              if (b.name === 'line_id') return 1;
+              return a.displayName.localeCompare(b.displayName);
+            });
 
           setColumns(columnInfo)
           setIsInitialized(true)
@@ -168,28 +177,37 @@ export default function FilterPage() {
   }, [])
 
   // Load saved filters
-  useEffect(() => {
-    const fetchSavedFilters = async () => {
-      try {
-        const response = await fetch('http://localhost:5000/api/filters/saved')
-        if (!response.ok) throw new Error('Failed to fetch saved filters')
-        const data = await response.json()
-        setSavedFilters(data.filters.map((filter: any) => ({
-          id: filter.filter_id,
-          name: filter.name,
-          description: filter.description,
-          keyColumns: [],
-          filterKeys: filter.filterKeys,
-          run_count: filter.run_count,
-          last_run: filter.last_run
-        })))
-      } catch (error) {
-        console.error('Error fetching saved filters:', error)
+  const fetchSavedFilters = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('http://localhost:5000/api/filters/saved');
+      if (!response.ok) {
+        throw new Error('Failed to fetch saved filters');
       }
-    }
+      const data: SavedFilter[] = await response.json();
+      setSavedFilters(data);
 
-    fetchSavedFilters()
-  }, [])
+      // If any filters were cleaned up (have different claims_ids), show a notification
+      const cleanedFilters = data.filter(filter => 
+        filter.last_updated && new Date(filter.last_updated).getTime() > Date.now() - 5000
+      );
+      
+      if (cleanedFilters.length > 0) {
+        alert(`Some filters were updated to remove references to deleted claims: ${
+          cleanedFilters.map(f => f.name).join(', ')
+        }`);
+      }
+    } catch (error) {
+      console.error('Error fetching saved filters:', error);
+      alert('Error fetching saved filters');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSavedFilters();
+  }, []);
 
   // Early return for initialization
   if (!isInitialized) {
@@ -261,18 +279,19 @@ export default function FilterPage() {
               ...key.conditions,
               {
                 id: `condition${key.conditions.length + 1}`,
+                key: key.keyColumn,
                 column: "",
                 operator: "equals",
                 value: null
               }
             ]
-          }
+          };
         }
-        return { ...key, children: key.children.map(updateKey) }
-      }
-      return keys.map(updateKey)
-    })
-  }
+        return { ...key, children: key.children.map(updateKey) };
+      };
+      return keys.map(updateKey);
+    });
+  };
 
   const handleRemoveCondition = (keyId: string, conditionId: string) => {
     setFilterKeys((keys) => {
@@ -334,6 +353,9 @@ export default function FilterPage() {
       const newKeyId = `group${Date.now()}`;
       const newKey: FilterKey = {
         id: newKeyId,
+        key: keyType === 'main' ? 'claim_id' : 'sub_key',
+        label: keyType === 'main' ? 'Main Filter' : 'Sub Filter',
+        type: 'group',
         keyType,
         keyColumn: keyType === 'main' ? 'claim_id' : '',
         conditions: [],
@@ -355,7 +377,7 @@ export default function FilterPage() {
 
       return keys.map(addKeyToParent);
     });
-  }
+  };
 
   const handleRemoveKey = (keyId: string) => {
     setFilterKeys((keys) => {
@@ -424,11 +446,14 @@ export default function FilterPage() {
       const savedFilter = await response.json();
 
       const newSavedFilter: SavedFilter = {
-        id: savedFilter.filter_id,
+        filter_id: savedFilter.filter_id,
         name: filterName,
         description: savedFilter.description || '',
-        keyColumns: [],
-        filterKeys,
+        conditions: savedFilter.conditions || [],
+        claims_ids: savedFilter.claims_ids || [],
+        is_favorite: savedFilter.is_favorite || false,
+        created_by: savedFilter.created_by || 'system',
+        last_updated: savedFilter.last_updated || new Date().toISOString(),
         run_count: savedFilter.run_count,
         last_run: savedFilter.last_run
       };
@@ -452,9 +477,9 @@ export default function FilterPage() {
       setIsLoading(true);
       setFilterName(filter.name);
       setFilterDescription(filter.description || '');
-      setSelectedSavedFilter(filterName);
+      setSelectedFilter(filterName);
 
-      const response = await fetch(`http://localhost:5000/api/filters/execute/${filter.id}`);
+      const response = await fetch(`http://localhost:5000/api/filters/execute/${filter.filter_id}`);
 
       if (!response.ok) {
         throw new Error('Failed to load saved filter data');
@@ -475,11 +500,17 @@ export default function FilterPage() {
         
         const newFilterKeys: FilterKey[] = [{
           id: "root",
+          key: "root",
+          label: "Root",
+          type: "group",
           keyType: null,
           keyColumn: "",
           conditions: [],
           children: [{
             id: "group1",
+            key: "main",
+            label: "Main Filter",
+            type: "group",
             keyType: 'main',
             keyColumn: 'claim_id',
             conditions: conditions
@@ -509,10 +540,14 @@ export default function FilterPage() {
           Object.entries(subKeyGroups).forEach(([keyColumn, conditions], index) => {
             newFilterKeys[0].children[0].children.push({
               id: `subgroup${index + 1}`,
+              key: "sub",
+              label: "Sub Filter",
+              type: "group",
               keyType: 'sub',
               keyColumn: keyColumn,
               conditions: (conditions as any[]).map((c, condIndex) => ({
                 id: `subcondition${index + 1}_${condIndex + 1}`,
+                key: keyColumn,
                 column: c.column,
                 operator: c.operator,
                 value: c.value,
@@ -633,7 +668,7 @@ export default function FilterPage() {
         totalRecords: data.statistics.totalRecords,
       });
 
-      setSelectedSavedFilter(null);
+      setSelectedFilter(null);
     } catch (error) {
       console.error('Error applying filter:', error);
       setError(error instanceof Error ? error.message : 'Failed to apply filter');
@@ -642,54 +677,35 @@ export default function FilterPage() {
     }
   }
 
-  const handleResetFilter = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      setFilterName("");
-      setFilterKeys([{
-        id: "root",
-        keyType: null,
-        keyColumn: "",
-        conditions: [],
-        children: [{
-          id: "group1",
-          keyType: 'main',
-          keyColumn: 'claim_id',
-          conditions: [{
-            id: "condition1",
-            column: "",
-            operator: "equals",
-            value: null
-          }],
-          children: []
-        }]
-      }]);
-      setSelectedSavedFilter(null);
-      setPage(1);
-
-      const response = await fetch(`http://localhost:5000/api/filters/claims?page=1&limit=${pageSize}`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch data');
-      }
-
-      const data = await response.json();
-      setClaims(data.claims);
-      setStatistics({
-        uniqueClaimIds: data.statistics.uniqueClaimIds,
-        dateRange: data.statistics.dateRange,
-        totalAllowedAmount: data.statistics.totalAllowedAmount,
-        totalRecords: data.statistics.totalRecords,
-      });
-
-    } catch (err) {
-      console.error('Error resetting filter:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred while resetting');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleResetFilter = () => {
+    setFilterName("");
+    setFilterKeys([{
+      id: "root",
+      key: "root",
+      label: "Root",
+      type: "group",
+      keyType: null,
+      keyColumn: "",
+      conditions: [],
+      children: [{
+        id: "group1",
+        key: "main",
+        label: "Main Filter",
+        type: "group",
+        keyType: 'main',
+        keyColumn: 'claim_id',
+        conditions: [{
+          id: "condition1",
+          key: "claim_id",
+          column: "",
+          operator: "equals",
+          value: null
+        }],
+        children: []
+      }]
+    }]);
+    setSelectedFilter(null);
+    setPage(1);
   }
 
   const handlePageChange = async (newPage: number) => {
@@ -842,25 +858,29 @@ export default function FilterPage() {
   }
 
   const handleDeleteFilter = async (filterName: string) => {
-    if (confirm(`Are you sure you want to delete the filter "${filterName}"?`)) {
-      try {
-        const response = await fetch(`http://localhost:5000/api/filters/saved/${filterName}`, {
-          method: 'DELETE',
-        });
+    if (!confirm(`Are you sure you want to delete the filter "${filterName}"?`)) {
+      return;
+    }
 
-        if (!response.ok) {
-          throw new Error('Failed to delete filter');
-        }
+    try {
+      const response = await fetch(`http://localhost:5000/api/filters/${filterName}`, {
+        method: 'DELETE'
+      });
 
-        // Remove the filter from the local state
-        setSavedFilters(filters => filters.filter(f => f.name !== filterName));
-        if (selectedSavedFilter === filterName) {
-          setSelectedSavedFilter(null);
-        }
-      } catch (error) {
-        console.error('Error deleting filter:', error);
-        setError('Failed to delete filter');
+      if (!response.ok) {
+        throw new Error('Failed to delete filter');
       }
+
+      // Refresh the filters list
+      fetchSavedFilters();
+      
+      // Clear selection if the deleted filter was selected
+      if (selectedFilter === filterName) {
+        setSelectedFilter(null);
+      }
+    } catch (error) {
+      console.error('Error deleting filter:', error);
+      alert('Error deleting filter');
     }
   };
 
@@ -877,7 +897,7 @@ export default function FilterPage() {
 
         // Clear the local state
         setSavedFilters([]);
-        setSelectedSavedFilter(null);
+        setSelectedFilter(null);
       } catch (error) {
         console.error('Error deleting all filters:', error);
         setError('Failed to delete all filters');
@@ -909,7 +929,7 @@ export default function FilterPage() {
 
       <SavedFiltersSelect
         savedFilters={savedFilters}
-        selectedFilter={selectedSavedFilter}
+        selectedFilter={selectedFilter}
         onFilterSelect={handleLoadFilter}
         onDeleteFilter={handleDeleteFilter}
       />

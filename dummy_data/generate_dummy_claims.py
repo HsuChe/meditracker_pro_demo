@@ -161,7 +161,7 @@ def get_table_schema():
         return None
 
 # Parameters for dummy data generation
-NUM_ROWS = 500000  # Number of rows to generate
+NUM_ROWS = 100000  # Number of rows to generate
 MAX_LINE_ID = 10  # Maximum line_id value
 LOW_LINE_ID_THRESHOLD = 5  # Threshold for 80% of line_ids
 LOW_LINE_ID_PROBABILITY = 0.8  # Probability of generating line_ids below threshold

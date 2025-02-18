@@ -6,6 +6,7 @@ const {
     createIngestedData,
     updateIngestedDataStatus,
     deleteIngestion,
+    deleteIngestionByName,
     clearAllIngestions,
     getDeletedRecords
 } = require('../controllers/ingestedDataController');
@@ -20,5 +21,8 @@ router.delete('/clear-all', clearAllIngestions);
 router.get('/:id', getIngestedDataById);
 router.patch('/:id', updateIngestedDataStatus);
 router.delete('/:id', deleteIngestion);
+
+// Name-based deletion route
+router.delete('/name/:name', deleteIngestionByName);
 
 module.exports = router; 

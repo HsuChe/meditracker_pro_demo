@@ -155,7 +155,7 @@ export function ClaimsSubmitter({
           data: transformedBatch,
           mapping_id: mappingId,
           record_count: transformedBatch.length,
-          file_size_bytes: new Blob([JSON.stringify(transformedBatch)]).size,
+          file_size_bytes: transformedBatch.length > 0 ? new Blob([JSON.stringify(transformedBatch)]).size : 0,
           batch_number: batchIndex,
           total_batches: totalBatches,
           parent_ingestion_id: parentIngestionId

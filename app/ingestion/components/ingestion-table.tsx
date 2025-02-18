@@ -111,31 +111,28 @@ export function IngestionTable({
 
       if (response.ok) {
         const data = await response.json();
-        
-        // Group the data by ingestion name
-        const groupedData = data.records.reduce((acc: GroupedIngestedData[], item: IngestedData) => {
+        const records = data.records || [];
+        const groupedData = records.reduce((acc: GroupedIngestedData[], item: IngestedData) => {
           const existingGroup = acc.find(group => group.name === item.name);
-          
           if (existingGroup) {
             existingGroup.batches.push(item);
-            existingGroup.totalRecords += item.record_count;
-            existingGroup.totalSize += item.file_size_bytes;
+            existingGroup.totalRecords += item.record_count || 0;
+            existingGroup.totalSize += item.file_size_bytes || 0;
           } else {
             acc.push({
               name: item.name,
               batches: [item],
-              totalRecords: item.record_count,
-              totalSize: item.file_size_bytes
+              totalRecords: item.record_count || 0,
+              totalSize: item.file_size_bytes || 0
             });
           }
           return acc;
         }, []);
-
         setIngestedData(groupedData);
         setPagination(prev => ({
           ...prev,
-          totalRecords: data.pagination.totalRecords,
-          totalPages: data.pagination.totalPages
+          totalRecords: data.pagination ? data.pagination.totalRecords : 0,
+          totalPages: data.pagination ? data.pagination.totalPages : 0
         }));
       }
     } catch (error) {
@@ -163,25 +160,40 @@ export function IngestionTable({
     }
   }, []);
 
-  const handleDelete = async (id: number, type: string) => {
-    const message = type === 'lut' 
-      ? 'Are you sure you want to delete this LUT and all its entries?'
-      : 'Are you sure you want to delete this ingestion and its associated claims?';
+  const handleDelete = async (id: number, type: string, isGroup: boolean = false, groupName?: string) => {
+    const message = isGroup
+      ? `Are you sure you want to delete all batches of "${groupName}" ${type.toLowerCase()} ingestion?`
+      : type === 'lut' 
+        ? 'Are you sure you want to delete this LUT and all its entries?'
+        : 'Are you sure you want to delete this ingestion and its associated claims?';
 
     if (confirm(message)) {
       try {
-        const response = await fetch(`http://localhost:5000/api/ingested-data/${id}`, {
-          method: 'DELETE'
-        });
-        
-        if (response.ok) {
-          fetchIngestedData();
+        if (isGroup && groupName) {
+          // Delete all batches by ingestion name
+          const response = await fetch(`http://localhost:5000/api/ingested-data/name/${encodeURIComponent(groupName)}`, {
+            method: 'DELETE'
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.details || `Failed to delete ${type.toLowerCase()} group`);
+          }
         } else {
-          throw new Error(`Failed to delete ${type.toLowerCase()}`);
+          const response = await fetch(`http://localhost:5000/api/ingested-data/${id}`, {
+            method: 'DELETE'
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.details || `Failed to delete ${type.toLowerCase()}`);
+          }
         }
-      } catch (error) {
+        
+        fetchIngestedData();
+      } catch (error: any) {
         console.error(`Error deleting ${type.toLowerCase()}:`, error);
-        alert(`Error deleting ${type.toLowerCase()}`);
+        alert(`Error deleting ${type.toLowerCase()}: ${error.message}`);
       }
     }
   };
@@ -193,7 +205,7 @@ export function IngestionTable({
           method: 'DELETE'
         });
         
-        if (response.ok) {
+        if (response && response.ok) {
           fetchIngestedData();
         } else {
           throw new Error('Failed to clear ingestion data');
@@ -219,6 +231,7 @@ export function IngestionTable({
         <Button 
           variant="destructive" 
           onClick={handleClearAll}
+          data-testid="clear-all-button"
         >
           Clear All
         </Button>
@@ -311,9 +324,15 @@ export function IngestionTable({
                       <Button
                         variant="destructive"
                         size="sm"
+                        data-testid="group-delete-button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDelete(group.batches[0].ingested_data_id, group.batches[0].type);
+                          handleDelete(
+                            group.batches[0].ingested_data_id, 
+                            group.batches[0].type,
+                            true,
+                            group.name
+                          );
                         }}
                       >
                         Delete All
@@ -353,6 +372,7 @@ export function IngestionTable({
                           <Button
                             variant="destructive"
                             size="sm"
+                            data-testid="batch-delete-button"
                             onClick={() => handleDelete(batch.ingested_data_id, batch.type)}
                           >
                             Delete

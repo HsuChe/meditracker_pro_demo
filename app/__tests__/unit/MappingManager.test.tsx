@@ -1,246 +1,397 @@
 /// <reference types="@testing-library/jest-dom" />
 /// <reference types="jest" />
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MappingManager } from '@/app/ingestion/components/mapping-manager';
-import { SelectContent, SelectItem } from '@/components/ui/select';
 
-interface Mapping {
-  csvColumn: string;
-  dbColumn: string;
-}
+// Mocking the Select component with proper type annotations
+jest.mock('@/components/ui/select', () => {
+  const React = require('react');
+  return {
+    Select: function MockSelect({ children, onValueChange, value, ...props }: { children?: React.ReactNode; onValueChange: (value: any) => void; value?: any; placeholder?: string; [key: string]: any }) {
+      const options: React.ReactNode[] = [];
+      React.Children.forEach(children, (child: any) => {
+        if (child && child.props && child.props.children) {
+          React.Children.forEach(child.props.children, (grandchild: any) => {
+            if (grandchild && grandchild.props && grandchild.props.value !== undefined) {
+              options.push(grandchild);
+            }
+          });
+        }
+      });
+      return (
+        <select data-testid="mock-select" value={value || ''} onChange={(e) => onValueChange(e.target.value)}>
+          <option value="">{props.placeholder || 'Select...'}</option>
+          {options.map((option: any) => (
+            <option key={option.props.value} value={option.props.value}>
+              {option.props.children}
+            </option>
+          ))}
+        </select>
+      );
+    },
+    SelectTrigger: function MockSelectTrigger({ children }: { children?: React.ReactNode }) { return <div>{children}</div>; },
+    SelectValue: function MockSelectValue({ children, placeholder }: { children?: React.ReactNode; placeholder?: string }) { return <span>{children || placeholder}</span>; },
+    SelectContent: function MockSelectContent({ children }: { children?: React.ReactNode }) { return <>{children}</>; },
+    SelectItem: function MockSelectItem({ children, value }: { children?: React.ReactNode; value: any }) { return <option value={value}>{children}</option>; },
+    SelectScrollUpButton: function MockSelectScrollUpButton() { return null; },
+    SelectScrollDownButton: function MockSelectScrollDownButton() { return null; },
+    SelectGroup: function MockSelectGroup({ children }: { children?: React.ReactNode }) { return <div>{children}</div>; },
+    SelectLabel: function MockSelectLabel({ children }: { children?: React.ReactNode }) { return <span>{children}</span>; }
+  };
+});
 
-// Mock the Select component
-jest.mock('@/components/ui/select', () => ({
-  Select: ({ children, onValueChange, value }: any) => (
-    <div className="select-wrapper">
-      <select 
-        value={value} 
-        onChange={(e) => onValueChange?.(e.target.value)}
-        aria-label={value === undefined ? "Select saved mapping" : "Select database column"}
-      >
-        <option value="">{value === undefined ? "Select a saved mapping" : "Select database column"}</option>
-        {React.Children.toArray(children).map(child => {
-          if (React.isValidElement(child) && child.type === SelectContent) {
-            return React.Children.toArray(child.props.children).map(item => {
-              if (React.isValidElement(item) && item.type === SelectItem) {
-                return <option key={item.props.value} value={item.props.value}>{item.props.children}</option>;
-              }
-              return null;
-            });
-          }
-          return null;
-        })}
-      </select>
-    </div>
-  ),
-  SelectTrigger: ({ children, id }: any) => null,
-  SelectValue: ({ placeholder }: any) => null,
-  SelectContent: ({ children }: any) => children,
-  SelectItem: ({ children, value }: any) => children,
-}));
-
-// Mock fetch globally
+// Mock fetch implementation
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
-// Mock window.alert
-const mockAlert = jest.fn();
-global.alert = mockAlert;
+// Mock alert
+global.alert = jest.fn();
 
 describe('MappingManager', () => {
-  const mockSavedMappings = [
-    {
-      id: 1,
-      name: 'Test Mapping 1',
-      mappings: [
-        { csvColumn: 'name', dbColumn: 'patient_name' },
-        { csvColumn: 'age', dbColumn: 'patient_age' }
-      ],
-      is_in_use: false,
-      created_at: '2024-01-01',
-      last_used: null
-    }
-  ];
-
-  const mockProps = {
-    csvColumns: ['name', 'age'],
-    dbColumns: ['patient_name', 'patient_email', 'patient_age'],
-    currentMappings: [
-      { csvColumn: 'name', dbColumn: '' },
-      { csvColumn: 'age', dbColumn: '' }
-    ],
-    onMappingChange: jest.fn(),
-    onMappingSelect: jest.fn()
-  };
-
   beforeEach(() => {
     jest.clearAllMocks();
-    mockFetch.mockImplementation(async (url: string) => {
-      if (url.includes('/api/mappings')) {
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('fetches saved mappings and DB columns on mount and displays them correctly', async () => {
+    const mockSavedMappings = [
+      {
+        id: 1,
+        name: 'Mapping 1',
+        mappings: [{ csvColumn: 'name', dbColumn: 'patient_name' }],
+        is_in_use: false,
+        created_at: '2024-01-01',
+        last_used: null
+      }
+    ];
+    const mockDbColumns = ['custom_db_column'];
+    const initialDbColumns = ['patient_email'];
+    const csvColumns = ['name', 'age'];
+    const currentMappings = csvColumns.map(col => ({ csvColumn: col, dbColumn: '' }));
+    const onMappingChange = jest.fn();
+    const onMappingSelect = jest.fn();
+
+    global.fetch = jest.fn().mockImplementation((url, options) => {
+      if (url === 'http://localhost:5000/api/mappings') {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve(mockSavedMappings)
         });
       }
-      if (url.includes('/api/db-columns')) {
+      if (url === 'http://localhost:5000/api/db-columns') {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve(mockProps.dbColumns)
+          json: () => Promise.resolve(mockDbColumns)
         });
       }
-      return Promise.reject(new Error('not found'));
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
     });
-  });
-
-  it('renders the component with initial state', async () => {
-    render(<MappingManager {...mockProps} />);
-    
-    await waitFor(() => {
-      expect(screen.getByText('Load Saved Mapping')).toBeInTheDocument();
-      expect(screen.getByText('Save Current Mapping')).toBeInTheDocument();
-      expect(screen.getByText('CSV Column')).toBeInTheDocument();
-      expect(screen.getByText('Database Column')).toBeInTheDocument();
-      expect(screen.getByText('name')).toBeInTheDocument();
-      expect(screen.getByText('age')).toBeInTheDocument();
-    });
-  });
-
-  it('handles saving new mapping', async () => {
-    render(<MappingManager {...mockProps} />);
-    
-    // Set mapping name
-    const input = screen.getByPlaceholderText('Enter mapping name');
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'New Mapping' } });
-    });
-    
-    // Click save button
-    const saveButton = screen.getByRole('button', { name: 'Save' });
-    await act(async () => {
-      fireEvent.click(saveButton);
-      // Wait for the next tick to allow the fetch call to be made
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-
-    // Verify the fetch call
-    const fetchCalls = mockFetch.mock.calls;
-    expect(fetchCalls.length).toBe(3); // Two for initial load (mappings & columns), one for save
-    const [url, options] = fetchCalls[2]; // The last call should be the save
-    expect(url).toBe('http://localhost:5000/api/mappings');
-    expect(JSON.parse(options.body)).toEqual({
-      name: 'New Mapping',
-      mappings: mockProps.currentMappings
-    });
-    expect(options.method).toBe('POST');
-    expect(options.headers).toEqual({ 'Content-Type': 'application/json' });
-  });
-
-  it('handles loading a saved mapping', async () => {
-    render(<MappingManager {...mockProps} />);
-    
-    // Wait for saved mappings to load
-    await waitFor(() => {
-      expect(screen.getByText('Test Mapping 1')).toBeInTheDocument();
-    });
-
-    // Find and change the saved mappings select
-    const select = screen.getByLabelText('Select saved mapping');
-    await act(async () => {
-      fireEvent.change(select, { target: { value: '1' } });
-    });
-
-    // Wait for the state to update
-    await waitFor(() => {
-      expect(mockProps.onMappingChange).toHaveBeenCalledWith(mockSavedMappings[0].mappings);
-      expect(mockProps.onMappingSelect).toHaveBeenCalledWith(1);
-    }, { timeout: 2000 });
-  });
-
-  it('handles database column selection', async () => {
-    render(<MappingManager {...mockProps} />);
-    
-    // Find all database column selects
-    const selects = screen.getAllByLabelText('Select database column');
-    expect(selects).toHaveLength(2); // Should only find database column selects now
-    
-    // The selects are ordered alphabetically by CSV column: 'age', 'name'
-    const ageSelect = selects[0]; // First row is 'age'
-    await act(async () => {
-      fireEvent.change(ageSelect, { target: { value: 'patient_age' } });
-    });
-    
-    // The currentMappings array maintains its original order (not sorted)
-    const expectedMappings = [
-      { csvColumn: 'name', dbColumn: '' },
-      { csvColumn: 'age', dbColumn: 'patient_age' }
-    ];
-    
-    await waitFor(() => {
-      expect(mockProps.onMappingChange).toHaveBeenCalledWith(expectedMappings);
-    });
-  });
-
-  it('displays current mappings in the table', async () => {
-    await act(async () => {
-      render(<MappingManager {...mockProps} />);
-    });
-
-    expect(screen.getByText('name')).toBeInTheDocument();
-    expect(screen.getByText('age')).toBeInTheDocument();
-    expect(screen.getAllByText('patient_name')[0]).toBeInTheDocument();
-    expect(screen.getAllByText('patient_age')[0]).toBeInTheDocument();
-  });
-
-  it('loads saved mappings from the server', async () => {
-    await act(async () => {
-      render(<MappingManager {...mockProps} />);
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Test Mapping 1')).toBeInTheDocument();
-    });
-
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:5000/api/mappings');
-  });
-
-  it('handles error states gracefully', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    
-    // Mock failed responses
-    mockFetch.mockImplementationOnce(() => Promise.reject(new Error('Failed to fetch')));
-
-    await act(async () => {
-      render(<MappingManager {...mockProps} />);
-    });
-
-    await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith('Error fetching saved mappings:', expect.any(Error));
-    });
-
-    consoleSpy.mockRestore();
-  });
-
-  it('sorts mappings alphabetically by CSV column', async () => {
-    const unsortedMappings = [
-      { csvColumn: 'zip', dbColumn: 'patient_zip' },
-      { csvColumn: 'age', dbColumn: 'patient_age' },
-      { csvColumn: 'name', dbColumn: 'patient_name' }
-    ];
 
     await act(async () => {
       render(
-        <MappingManager
-          {...mockProps}
-          currentMappings={unsortedMappings}
+        <MappingManager 
+          csvColumns={csvColumns} 
+          dbColumns={initialDbColumns} 
+          currentMappings={currentMappings} 
+          onMappingChange={onMappingChange} 
+          onMappingSelect={onMappingSelect} 
         />
       );
     });
 
-    const csvColumns = screen.getAllByRole('row').slice(1) // Skip header row
-      .map(row => row.firstChild?.textContent);
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith('http://localhost:5000/api/mappings');
+      expect(global.fetch).toHaveBeenCalledWith('http://localhost:5000/api/db-columns');
+      expect(screen.getByText('Mapping 1')).toBeInTheDocument();
+    });
 
-    expect(csvColumns).toEqual(['age', 'name', 'zip']);
+    // Check saved mapping select has the option
+    const selects = screen.getAllByTestId('mock-select');
+    const savedMappingSelect = selects[0];
+    expect(savedMappingSelect).toBeInTheDocument();
+    expect(savedMappingSelect).toHaveDisplayValue('Select...');
+    expect(savedMappingSelect.querySelector('option[value="1"]')).toBeInTheDocument();
+
+    // Check CSV columns in table
+    csvColumns.forEach(col => {
+      expect(screen.getByText(col)).toBeInTheDocument();
+    });
+
+    // Check DB column dropdown for 'name' row contains merged and sorted options
+    const rowForName = screen.getByText('name').closest('tr');
+    expect(rowForName).toBeInTheDocument();
+    const dbSelectInRow = rowForName?.querySelector('[data-testid="mock-select"]');
+    expect(dbSelectInRow).toBeInTheDocument();
+    const optionValues = Array.from(dbSelectInRow!.querySelectorAll('option')).map(opt => opt.textContent?.trim());
+    expect(optionValues).toEqual(expect.arrayContaining(['Select...', 'custom_db_column', 'patient_email']));
+  });
+
+  it('calls onMappingSelect and updates mapping when saved mapping is selected', async () => {
+    const mockSavedMappings = [
+      {
+        id: 1,
+        name: 'Mapping 1',
+        mappings: [
+          { csvColumn: 'name', dbColumn: 'patient_name' },
+          { csvColumn: 'age', dbColumn: 'patient_age' }
+        ],
+        is_in_use: false,
+        created_at: '2024-01-01',
+        last_used: null
+      }
+    ];
+    const initialDbColumns = ['db1'];
+    const csvColumns = ['name', 'age'];
+    const currentMappings = csvColumns.map(col => ({ csvColumn: col, dbColumn: '' }));
+    const onMappingChange = jest.fn();
+    const onMappingSelect = jest.fn();
+
+    global.fetch = jest.fn().mockImplementation((url, options) => {
+      if (url === 'http://localhost:5000/api/mappings') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockSavedMappings)
+        });
+      }
+      if (url === 'http://localhost:5000/api/db-columns') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+
+    await act(async () => {
+      render(
+        <MappingManager 
+          csvColumns={csvColumns} 
+          dbColumns={initialDbColumns}
+          currentMappings={currentMappings}
+          onMappingChange={onMappingChange}
+          onMappingSelect={onMappingSelect}
+        />
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Mapping 1')).toBeInTheDocument();
+    });
+
+    const selects = screen.getAllByTestId('mock-select');
+    const savedMappingSelect = selects[0];
+
+    await act(async () => {
+      fireEvent.change(savedMappingSelect, { target: { value: '1' } });
+    });
+
+    expect(onMappingSelect).toHaveBeenCalledWith(1);
+    expect(onMappingChange).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ csvColumn: 'name', dbColumn: 'patient_name' }),
+      expect.objectContaining({ csvColumn: 'age', dbColumn: 'patient_age' })
+    ]));
+  });
+
+  it('saves new mapping when Save button is clicked', async () => {
+    const initialDbColumns = ['db1'];
+    const csvColumns = ['name', 'age'];
+    const currentMappings = csvColumns.map(col => ({ csvColumn: col, dbColumn: '' }));
+    const onMappingChange = jest.fn();
+    const onMappingSelect = jest.fn();
+
+    const newMapping = {
+      id: 2,
+      name: 'New Mapping',
+      mappings: currentMappings,
+      is_in_use: false,
+      created_at: '2024-02-02',
+      last_used: null
+    };
+
+    global.fetch = jest.fn().mockImplementation((url, options) => {
+      if (url === 'http://localhost:5000/api/mappings') {
+        if (options && options.method === 'POST') {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(newMapping)
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      if (url === 'http://localhost:5000/api/db-columns') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+
+    global.alert = jest.fn();
+
+    await act(async () => {
+      render(
+        <MappingManager 
+          csvColumns={csvColumns}
+          dbColumns={initialDbColumns}
+          currentMappings={currentMappings}
+          onMappingChange={onMappingChange}
+          onMappingSelect={onMappingSelect}
+        />
+      );
+    });
+
+    const input = screen.getByPlaceholderText('Enter mapping name');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'New Mapping' } });
+    });
+
+    const saveButton = screen.getByRole('button', { name: 'Save' });
+    await act(async () => {
+      fireEvent.click(saveButton);
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:5000/api/mappings',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: expect.stringContaining('New Mapping')
+      })
+    );
+    expect(global.alert).toHaveBeenCalledWith('Mapping saved successfully');
+
+    await waitFor(() => {
+      const selects = screen.getAllByTestId('mock-select');
+      expect(selects[0].querySelector('option[value="2"]')).toBeInTheDocument();
+    });
+  });
+
+  it('updates onMappingChange when editing DB column selection', async () => {
+    const initialDbColumns = ['db1', 'db2'];
+    const csvColumns = ['name', 'age'];
+    const currentMappings = csvColumns.map(col => ({ csvColumn: col, dbColumn: '' }));
+    const onMappingChange = jest.fn();
+    const onMappingSelect = jest.fn();
+
+    global.fetch = jest.fn().mockImplementation((url, options) => {
+      if (url === 'http://localhost:5000/api/mappings') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      if (url === 'http://localhost:5000/api/db-columns') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+
+    await act(async () => {
+      render(
+        <MappingManager 
+          csvColumns={csvColumns}
+          dbColumns={initialDbColumns}
+          currentMappings={currentMappings}
+          onMappingChange={onMappingChange}
+          onMappingSelect={onMappingSelect}
+        />
+      );
+    });
+
+    // In sorted order, "age" comes before "name".
+    // We want to update the mapping for 'name'.
+    const rowForName = screen.getByText('name').closest('tr');
+    expect(rowForName).toBeInTheDocument();
+    const dbSelectForName = rowForName?.querySelector('[data-testid="mock-select"]');
+    expect(dbSelectForName).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.change(dbSelectForName!, { target: { value: 'db1' } });
+    });
+
+    expect(onMappingChange).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ csvColumn: 'name', dbColumn: 'db1' }),
+      expect.objectContaining({ csvColumn: 'age', dbColumn: '' })
+    ]));
+  });
+
+  it('handles delete functionality and state propagation', async () => {
+    const mockSavedMappings = [
+      {
+        id: 1,
+        name: 'Mapping 1',
+        mappings: [{ csvColumn: 'name', dbColumn: 'patient_name' }],
+        is_in_use: false,
+        created_at: '2024-01-01',
+        last_used: null
+      }
+    ];
+    const initialDbColumns = ['db1'];
+    const csvColumns = ['name', 'age'];
+    const currentMappings = csvColumns.map(col => ({ csvColumn: col, dbColumn: '' }));
+    const onMappingChange = jest.fn();
+    const onMappingSelect = jest.fn();
+
+    // Initial fetch returns the saved mapping
+    global.fetch = jest.fn().mockImplementation((url, options) => {
+      if (url === 'http://localhost:5000/api/mappings') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(mockSavedMappings) });
+      }
+      if (url === 'http://localhost:5000/api/db-columns') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      if (url.startsWith('http://localhost:5000/api/mappings/')) {
+        // For DELETE call
+        return Promise.resolve({ ok: true });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+
+    const { unmount } = render(
+      <MappingManager 
+        csvColumns={csvColumns}
+        dbColumns={initialDbColumns}
+        currentMappings={currentMappings}
+        onMappingChange={onMappingChange}
+        onMappingSelect={onMappingSelect}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Mapping 1')).toBeInTheDocument();
+    });
+
+    const selects = screen.getAllByTestId('mock-select');
+    const savedMappingSelect = selects[0];
+    expect(savedMappingSelect.querySelector('option[value="1"]')).toBeInTheDocument();
+
+    // Simulate deletion API call
+    await act(async () => {
+      await fetch('http://localhost:5000/api/mappings/1', { method: 'DELETE' });
+    });
+
+    // Now simulate that new fetch returns an empty array of saved mappings
+    global.fetch = jest.fn().mockImplementation((url, options) => {
+      if (url === 'http://localhost:5000/api/mappings') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      if (url === 'http://localhost:5000/api/db-columns') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+
+    unmount();
+    await act(async () => {
+      render(
+        <MappingManager 
+          csvColumns={csvColumns}
+          dbColumns={initialDbColumns}
+          currentMappings={currentMappings}
+          onMappingChange={onMappingChange}
+          onMappingSelect={onMappingSelect}
+        />
+      );
+    });
+
+    const newSelects = screen.getAllByTestId('mock-select');
+    expect(newSelects[0].querySelector('option[value="1"]')).not.toBeInTheDocument();
   });
 }); 

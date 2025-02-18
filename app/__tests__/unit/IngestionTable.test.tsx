@@ -147,6 +147,17 @@ describe('IngestionTable', () => {
       expect(screen.getByText('Test Ingestion 1')).toBeInTheDocument();
     });
 
+    // Expand the group to reveal batch deletion buttons
+    const groupRow = screen.getByText('Test Ingestion 1').closest('tr');
+    if (groupRow) {
+      fireEvent.click(groupRow);
+    }
+
+    // Wait for the batch row to appear that contains the batch delete button
+    const batchDeleteButtons = await screen.findAllByTestId('batch-delete-button');
+    const batchDeleteButton = batchDeleteButtons[0];
+
+    // Setup mock for deletion call
     mockFetch.mockImplementationOnce(() => 
       Promise.resolve({
         ok: true,
@@ -154,9 +165,8 @@ describe('IngestionTable', () => {
       })
     );
 
-    const deleteButtons = await screen.findAllByRole('button', { name: /Delete/i });
     await act(async () => {
-      fireEvent.click(deleteButtons[0]);
+      fireEvent.click(batchDeleteButton);
     });
 
     expect(mockConfirm).toHaveBeenCalled();
@@ -312,5 +322,155 @@ describe('IngestionTable', () => {
 
     // Find the date range picker button
     expect(screen.getByText('Filter by date range')).toBeInTheDocument();
+  });
+
+  /* NEW TESTS FOR DELETE OPERATIONS */
+  describe('Delete Operations', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      window.confirm = jest.fn(() => true);
+    });
+
+    test('should perform "Clear All" operation', async () => {
+      mockFetch.mockClear();
+      // Chain responses: 1. initial render, 2. deletion, 3. refresh
+      mockFetch
+        .mockImplementationOnce(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockIngestedData)  // initial render
+          })
+        )
+        .mockImplementationOnce(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({})  // deletion response
+          })
+        )
+        .mockImplementationOnce(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockIngestedData)  // refresh response
+          })
+        );
+
+      await act(async () => {
+        render(<IngestionTable activeTab="csv" />);
+      });
+
+      // Initial render should show data
+      await waitFor(() => {
+        expect(screen.getByText('Test Ingestion 1')).toBeInTheDocument();
+      });
+
+      const clearAllButton = screen.getByRole('button', { name: /Clear All/i });
+
+      await act(async () => {
+        fireEvent.click(clearAllButton);
+      });
+
+      expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('delete ALL ingestion records'));
+
+      const calls = mockFetch.mock.calls;
+      const clearCall = calls.find(call => call[0].includes('/api/ingested-data/clear-all') && call[1]?.method === 'DELETE');
+      expect(clearCall).toBeTruthy();
+    });
+
+    test('should perform "Delete All" (group deletion) operation', async () => {
+      mockFetch.mockClear();
+      // Chain responses: 1. initial render, 2. deletion, 3. refresh
+      mockFetch
+        .mockImplementationOnce(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockIngestedData)  // initial render
+          })
+        )
+        .mockImplementationOnce(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({})  // deletion response
+          })
+        )
+        .mockImplementationOnce(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockIngestedData)  // refresh response
+          })
+        );
+
+      await act(async () => {
+        render(<IngestionTable activeTab="csv" />);
+      });
+
+      // Wait for the group row to appear
+      await waitFor(() => {
+        expect(screen.getByText('Test Ingestion 1')).toBeInTheDocument();
+      });
+
+      const deleteAllButton = screen.getByRole('button', { name: /Delete All/i });
+      await act(async () => {
+        fireEvent.click(deleteAllButton);
+      });
+
+      expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('delete all batches'));
+      const calls = mockFetch.mock.calls;
+      const groupDeleteCall = calls.find(call => call[0].includes('/api/ingested-data/name/') && call[1]?.method === 'DELETE');
+      expect(groupDeleteCall).toBeTruthy();
+      expect(groupDeleteCall[0]).toContain(encodeURIComponent('Test Ingestion 1'));
+    });
+
+    test('should perform batch specific "Delete" operation', async () => {
+      mockFetch.mockClear();
+      // Chain responses: 1. initial render, 2. deletion, 3. refresh
+      mockFetch
+        .mockImplementationOnce(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockIngestedData)  // initial render
+          })
+        )
+        .mockImplementationOnce(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({})  // deletion response
+          })
+        )
+        .mockImplementationOnce(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockIngestedData)  // refresh response
+          })
+        );
+
+      await act(async () => {
+        render(<IngestionTable activeTab="csv" />);
+      });
+
+      // Expand the group to reveal batch rows
+      const groupRow = screen.getByText('Test Ingestion 1').closest('tr');
+      if (groupRow) {
+        fireEvent.click(groupRow);
+      }
+
+      await waitFor(() => {
+        expect(screen.getByText(/Batch 1 of 2/i)).toBeInTheDocument();
+      });
+
+      // Find the batch-specific delete button (with text exactly 'Delete')
+      const deleteButtons = screen.getAllByRole('button', { name: /^Delete$/i });
+      await act(async () => {
+        fireEvent.click(deleteButtons[0]);
+      });
+
+      expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('delete this ingestion'));
+      const calls = mockFetch.mock.calls;
+      const batchDeleteCall = calls.find(call => 
+        call[0].includes('/api/ingested-data/') && 
+        call[1]?.method === 'DELETE' && 
+        !call[0].includes('/name/')
+      );
+      expect(batchDeleteCall).toBeTruthy();
+    });
   });
 }); 

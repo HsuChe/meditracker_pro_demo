@@ -61,14 +61,12 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
         if (response.ok) {
           const columns = await response.json();
           setAvailableDbColumns(prev => {
-            // Convert to array before sorting
             const combined = Array.from(new Set([...prev, ...columns]));
             return combined.sort();
           });
         }
       } catch (error) {
         console.error('Error fetching database columns:', error);
-        setAvailableDbColumns(prev => prev);
       }
     };
 
@@ -79,11 +77,20 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
   const handleLoadMapping = useCallback((mappingId: string) => {
     const mapping = savedMappings.find(m => m.id.toString() === mappingId);
     if (mapping) {
-      onMappingChange(mapping.mappings);
+      // Create a new mapping array that includes all current CSV columns
+      const updatedMappings = csvColumns.map(csvColumn => {
+        const savedMapping = mapping.mappings.find(m => m.csvColumn === csvColumn);
+        return {
+          csvColumn,
+          dbColumn: savedMapping?.dbColumn || ''
+        };
+      });
+      
+      onMappingChange(updatedMappings);
       setSelectedMapping(mappingId);
-      onMappingSelect(mapping.id);
+      onMappingSelect(parseInt(mappingId, 10));
     }
-  }, [savedMappings, onMappingChange, onMappingSelect]);
+  }, [savedMappings, onMappingChange, onMappingSelect, csvColumns]);
 
   // Handle saving a new mapping
   const handleSaveMapping = useCallback(async () => {
@@ -102,19 +109,37 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
         })
       });
 
-      if (response.ok) {
-        const newMapping = await response.json();
-        setSavedMappings(prev => [...prev, newMapping]);
-        setNewMappingName("");
-        alert('Mapping saved successfully');
-      } else {
+      if (!response.ok) {
         throw new Error('Failed to save mapping');
       }
+
+      const newMapping = await response.json();
+      setSavedMappings(prev => [...prev, newMapping]);
+      setNewMappingName("");
+      alert('Mapping saved successfully');
     } catch (error) {
       console.error('Error saving mapping:', error);
       alert('Error saving mapping');
     }
   }, [newMappingName, currentMappings]);
+
+  // Handle database column selection
+  const handleDbColumnChange = useCallback((csvColumn: string, value: string) => {
+    const newMappings = currentMappings.map(mapping => {
+      if (mapping.csvColumn === csvColumn) {
+        return { ...mapping, dbColumn: value };
+      }
+      return mapping;
+    });
+    
+    // Ensure we're passing valid mappings
+    const validMappings = newMappings.map(mapping => ({
+      csvColumn: mapping.csvColumn,
+      dbColumn: mapping.dbColumn || ''
+    }));
+    
+    onMappingChange(validMappings);
+  }, [currentMappings, onMappingChange]);
 
   // Delete mapping
   const handleDeleteMapping = useCallback(async (mappingId: number) => {
@@ -153,14 +178,17 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
           <Label htmlFor="saved-mapping" className="block text-sm font-medium">
             Load Saved Mapping
           </Label>
-          <Select onValueChange={handleLoadMapping}>
+          <Select onValueChange={handleLoadMapping} value={selectedMapping}>
             <SelectTrigger id="saved-mapping" className="w-full">
               <SelectValue placeholder="Select a saved mapping" />
             </SelectTrigger>
             <SelectContent>
               {(savedMappings || []).map((mapping) => (
-                <SelectItem key={mapping?.id} value={mapping?.id?.toString() || ''}>
-                  {mapping?.name}
+                <SelectItem 
+                  key={mapping?.id?.toString() || ''} 
+                  value={mapping?.id?.toString() || ''}
+                >
+                  {mapping?.name || ''}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -196,20 +224,13 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
           </TableRow>
         </TableHeader>
         <TableBody>
-          {sortedMappings.map((mapping, index) => (
+          {sortedMappings.map((mapping) => (
             <TableRow key={mapping.csvColumn}>
               <TableCell>{mapping.csvColumn}</TableCell>
               <TableCell>
                 <Select
                   value={mapping.dbColumn}
-                  onValueChange={(value) => {
-                    const originalIndex = currentMappings.findIndex(
-                      m => m.csvColumn === mapping.csvColumn
-                    );
-                    const newMappings = [...currentMappings];
-                    newMappings[originalIndex] = { ...mapping, dbColumn: value };
-                    onMappingChange(newMappings);
-                  }}
+                  onValueChange={(value) => handleDbColumnChange(mapping.csvColumn, value)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select database column" />

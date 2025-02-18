@@ -212,50 +212,71 @@ const buildWhereClauses = (conditions) => {
     return { clauses, params };
 };
 
+const validateAndCleanFilter = async (client, filter) => {
+  try {
+    if (!filter.claims_ids || !Array.isArray(filter.claims_ids)) {
+      return filter;
+    }
+
+    // Query to check which claim IDs still exist
+    const query = `
+      SELECT id 
+      FROM claims_dummy 
+      WHERE id = ANY($1::int[])
+    `;
+    
+    const result = await client.query(query, [filter.claims_ids]);
+    
+    // Get the set of existing IDs
+    const existingIds = new Set(result.rows.map(row => row.id));
+    
+    // Filter out non-existing IDs
+    const validClaimIds = filter.claims_ids.filter(id => existingIds.has(id));
+    
+    // If there are any invalid IDs, update the filter
+    if (validClaimIds.length !== filter.claims_ids.length) {
+      const updateQuery = `
+        UPDATE saved_filters 
+        SET claims_ids = $1::jsonb,
+            last_updated = CURRENT_TIMESTAMP
+        WHERE filter_id = $2
+        RETURNING *
+      `;
+      
+      const updateResult = await client.query(updateQuery, [
+        JSON.stringify(validClaimIds),
+        filter.filter_id
+      ]);
+
+      return updateResult.rows[0];
+    }
+
+    return filter;
+  } catch (error) {
+    console.error('Error validating filter:', error);
+    return filter;
+  }
+};
+
 // Get all saved filters with optional pagination and search
 const getSavedFilters = async (req, res) => {
+    const client = await pool.connect();
     try {
-        const { page = 1, limit = 10, search, sortBy = 'last_updated', sortOrder = 'DESC' } = req.query;
-        const offset = (page - 1) * limit;
-
-        let query = `
-            SELECT f.*, 
-                   COUNT(h.history_id) as run_count,
-                   MAX(h.run_timestamp) as last_run
-            FROM saved_filters f
-            LEFT JOIN filter_results_history h ON f.filter_id = h.filter_id
-        `;
-
-        const params = [];
-        if (search) {
-            query += ` WHERE f.name ILIKE $1 OR f.description ILIKE $1`;
-            params.push(`%${search}%`);
-        }
-
-        query += ` GROUP BY f.filter_id
-                  ORDER BY ${sortBy} ${sortOrder}
-                  LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-
-        const result = await pool.query(query, [...params, limit, offset]);
-        
-        // Get total count for pagination
-        const countResult = await pool.query(
-            'SELECT COUNT(*) FROM saved_filters' + (search ? ' WHERE name ILIKE $1 OR description ILIKE $1' : ''),
-            search ? [`%${search}%`] : []
+        const result = await client.query(
+            'SELECT * FROM saved_filters ORDER BY last_updated DESC'
         );
 
-        res.json({
-            filters: result.rows,
-            pagination: {
-                total: parseInt(countResult.rows[0].count),
-                page: parseInt(page),
-                limit: parseInt(limit),
-                pages: Math.ceil(parseInt(countResult.rows[0].count) / limit)
-            }
-        });
-    } catch (err) {
-        console.error('Error fetching saved filters:', err);
-        res.status(500).json({ error: 'Internal server error', details: err.message });
+        // Validate and clean up each filter
+        const validatedFilters = await Promise.all(
+            result.rows.map(filter => validateAndCleanFilter(client, filter))
+        );
+
+        res.json(validatedFilters);
+    } catch (error) {
+        console.error('Error fetching saved filters:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    } finally {
+        client.release();
     }
 };
 
@@ -354,61 +375,29 @@ const saveFilter = async (req, res) => {
 const executeFilter = async (req, res) => {
     const client = await pool.connect();
     try {
-        const { conditions } = req.body;
-        
-        if (!Array.isArray(conditions)) {
-            return res.status(400).json({ 
-                error: 'Invalid conditions format',
-                details: 'Conditions must be an array'
-            });
-        }
-
         await client.query('BEGIN');
         
-        // Separate main and sub conditions
-        const mainConditions = conditions
-            .filter(c => c.key === 'Claim Id')
-            .map(({ column, operator, value, secondValue }) => ({
-                column, operator, value, secondValue
-            }));
-
-        const subKeyConditions = conditions
-            .filter(c => c.key.startsWith('Sub Key:'))
-            .map(({ column, operator, value, secondValue }) => ({
-                column, operator, value, secondValue
-            }));
-
-        // Extract sub key column if sub conditions exist
-        const subKeyColumn = subKeyConditions.length > 0 
-            ? conditions.find(c => c.key.startsWith('Sub Key:'))?.key.split(': ')[1]
-            : null;
-
-        // Build the complete query
-        const { query, params } = buildFilterQuery(conditions);
-
-        // Execute query and get results
-        const result = await client.query(query, params);
+        const { filterId } = req.params;
         
-        // Transform results
-        const transformedResults = result.rows;
+        // Get the filter
+        const filterResult = await client.query(
+            'SELECT * FROM saved_filters WHERE filter_id = $1',
+            [filterId]
+        );
 
-        // Calculate statistics
-        const statistics = await calculateStatistics(transformedResults);
+        if (filterResult.rows.length === 0) {
+            throw new Error('Filter not found');
+        }
+
+        // Validate and clean up the filter before execution
+        const validatedFilter = await validateAndCleanFilter(client, filterResult.rows[0]);
+
+        // Execute the filter with validated claims_ids
+        const query = await buildFilterQuery(validatedFilter);
+        const result = await client.query(query);
 
         await client.query('COMMIT');
-
-        // Return response
-        res.json({
-            claims: transformedResults,
-            statistics,
-            pagination: {
-                total: transformedResults.length,
-                page: req.body.page || 1,
-                limit: req.body.limit || 10,
-                pages: Math.ceil(transformedResults.length / (req.body.limit || 10))
-            }
-        });
-
+        res.json(result.rows);
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Error in executeFilter:', error);
@@ -610,5 +599,6 @@ module.exports = {
     executeFilter,
     savedFilterQueryBuilder,
     deleteFilter,
-    deleteAllFilters
+    deleteAllFilters,
+    validateAndCleanFilter
 };
