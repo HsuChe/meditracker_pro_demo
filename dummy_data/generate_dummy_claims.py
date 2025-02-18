@@ -161,7 +161,7 @@ def get_table_schema():
         return None
 
 # Parameters for dummy data generation
-NUM_ROWS = 100000  # Number of rows to generate
+NUM_ROWS = 300000  # Number of rows to generate
 MAX_LINE_ID = 10  # Maximum line_id value
 LOW_LINE_ID_THRESHOLD = 5  # Threshold for 80% of line_ids
 LOW_LINE_ID_PROBABILITY = 0.8  # Probability of generating line_ids below threshold
@@ -525,7 +525,7 @@ def generate_dummy_data(num_rows):
                 
                 row = {
                     "claim_id": claim_id,
-                    "line_id": str(line_id).zfill(4),  # Ensure consistent format
+                    "line_id": line_id,  # Using integer for line_id
                     "procedure_code": proc_code,
                     **base_claim_data,
                     "line_charges": line_charge,
@@ -664,15 +664,21 @@ def export_to_csv(filename, data):
             writer.writeheader()
             writer.writerows(cleaned_data)
 
-# Generate and export dummy data
-data = generate_dummy_data(NUM_ROWS)
-validate_data(data)
+if __name__ == "__main__":
+    try:
+        num_rows = int(input("Enter the number of rows to generate: "))
+    except ValueError:
+        print("Invalid input; using default of 300000 rows.")
+        num_rows = NUM_ROWS
 
-# Get the directory where this script is located
-script_dir = os.path.dirname(os.path.abspath(__file__))
-output_filename = f"dummy_medical_data {NUM_ROWS}.csv"
-output_path = os.path.join(script_dir, output_filename)
+    data = generate_dummy_data(num_rows)
+    validate_data(data)
 
-export_to_csv(output_path, data)
-print(f"\n{NUM_ROWS} rows of dummy medical data have been generated and saved to '{output_filename}'")
-print(f"File location: {output_path}")
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_filename = f"dummy_medical_data {num_rows}.csv"
+    output_path = os.path.join(script_dir, output_filename)
+
+    export_to_csv(output_path, data)
+    print(f"\n{num_rows} rows of dummy medical data have been generated and saved to '{output_filename}'")
+    print(f"File location: {output_path}")

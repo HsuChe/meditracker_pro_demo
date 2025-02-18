@@ -244,7 +244,7 @@ export default function IngestionPage() {
             </TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="csv" data-value="csv" className="border-x border-b rounded-t-none">
+        <TabsContent value="csv" data-value="csv" className="rounded-t-none">
           <Card className="border-0 shadow-none">
             <CardHeader>
               <CardTitle>CSV Upload and Mapping</CardTitle>
