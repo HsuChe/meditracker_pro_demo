@@ -1,8 +1,16 @@
 // server.js
 const path = require('path');
-require('dotenv').config({
-  path: path.resolve(process.cwd(), `.env.${process.env.NODE_ENV || 'development'}`)
-});
+
+// Try to load from env file first, but don't error if file doesn't exist
+try {
+  require('dotenv').config({
+    path: path.resolve(process.cwd(), `.env.${process.env.NODE_ENV || 'development'}`),
+    silent: true
+  });
+} catch (error) {
+  console.log('No .env file found, using process.env variables');
+}
+
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -19,14 +27,15 @@ const app = express();
 
 // Log environment configuration on startup
 console.log('Current environment:', process.env.NODE_ENV);
-console.log('Using environment file:', `.env.${process.env.NODE_ENV || 'development'}`);
+console.log('Environment source:', process.env.DATABASE_URL ? 'Direct env variables' : '.env file');
 console.log('Database connection details:', {
   host: process.env.POSTGRES_HOST,
   port: process.env.POSTGRES_PORT,
   database: process.env.POSTGRES_DATABASE,
   user: process.env.POSTGRES_USER,
   password: process.env.POSTGRES_PASSWORD ? '[password provided]' : '[no password]',
-  passwordLength: process.env.POSTGRES_PASSWORD ? process.env.POSTGRES_PASSWORD.length : 0
+  passwordLength: process.env.POSTGRES_PASSWORD ? process.env.POSTGRES_PASSWORD.length : 0,
+  database_url: process.env.DATABASE_URL ? '[url provided]' : '[no url provided]'
 });
 
 // Increase payload size limits even further for large CSV files
