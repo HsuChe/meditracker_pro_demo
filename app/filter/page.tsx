@@ -863,7 +863,7 @@ export default function FilterPage() {
     }
 
     try {
-      const response = await fetch(`http://localhost:5000/api/filters/${filterName}`, {
+      const response = await fetch(`http://localhost:5000/api/filters/saved/${encodeURIComponent(filterName)}`, {
         method: 'DELETE'
       });
 

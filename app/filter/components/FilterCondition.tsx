@@ -63,10 +63,11 @@ export function FilterCondition({
 }: FilterConditionProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
-  const [useLUT, setUseLUT] = useState(false)
+  const [useLUT, setUseLUT] = useState(!!condition.lutValue)
   const [date, setDate] = useState<Date>()
   const [dateRange, setDateRange] = useState<DateRange>()
   const [diagnosisCodes, setDiagnosisCodes] = useState<DiagnosisCodeResponse['data']>({})
+  const [selectedLUT, setSelectedLUT] = useState(condition.lutValue || "")
   
   const selectedColumn = availableColumns.find(col => col.name === condition.column)
   const isStringType = selectedColumn?.dataType === 'string'
@@ -77,12 +78,6 @@ export function FilterCondition({
 
   // Add a ref to track if we've already fetched the codes
   const hasFetchedRef = React.useRef(false);
-
-  useEffect(() => {
-    if (useLUT && condition.column === 'diagnosis_code') {
-      onChange({ operator: 'in_list' });
-    }
-  }, [useLUT, condition.column]);
 
   useEffect(() => {
     const fetchDiagnosisCodes = async () => {
@@ -120,6 +115,12 @@ export function FilterCondition({
     hasFetchedRef.current = false;
   }, [ingestedIds]);
 
+  useEffect(() => {
+    if (condition.lutValue !== selectedLUT) {
+      setSelectedLUT(condition.lutValue || "");
+    }
+  }, [condition.lutValue]);
+
   const {
     attributes,
     listeners,
@@ -140,15 +141,14 @@ export function FilterCondition({
   }, [condition.column, isStringType])
 
   const handleLUTNameSelect = (name: string) => {
-    
     if (diagnosisCodes[name]) {
+      setUseLUT(true);
+      setSelectedLUT(name);
       const selectedCodes = diagnosisCodes[name].diagnosis_codes;
-      
-      // Update both the operator and values in a single onChange call
       onChange({ 
         operator: 'in_list',
         value: selectedCodes.join(','),
-        lutValue: name // Add this to maintain the selected name in the dropdown
+        lutValue: name
       });
     } else {
       console.log('No diagnosis codes found for name:', name);
@@ -415,7 +415,7 @@ export function FilterCondition({
           {useLUT ? (
             <>
               <Select
-                value={condition.lutValue || ""}
+                value={selectedLUT}
                 onValueChange={handleLUTNameSelect}
               >
                 <SelectTrigger data-testid="lut-select">
@@ -454,7 +454,16 @@ export function FilterCondition({
           <Switch
             id={`use-lut-${id}`}
             checked={useLUT}
-            onCheckedChange={setUseLUT}
+            onCheckedChange={(checked) => {
+              setUseLUT(checked);
+              if (condition.column === 'diagnosis_code') {
+                if (checked) {
+                  onChange({ operator: 'in_list' });
+                } else {
+                  onChange({ operator: 'equals', lutValue: '', value: '' });
+                }
+              }
+            }}
             data-testid="use-lut-switch"
           />
           <Label htmlFor={`use-lut-${id}`} className="text-sm text-muted-foreground whitespace-nowrap">

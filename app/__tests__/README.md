@@ -12,45 +12,62 @@ This document provides guidelines for writing and running tests in the MediTrack
 
 ## Test Structure
 
+# Test Directory Structure
+
 ```
-app/
-└── __tests__/
-    ├── setup/              # Test setup and configuration
-    │   ├── jest.setup.ts   # Jest setup file
-    │   └── jest-dom.d.ts   # TypeScript declarations
-    ├── unit/               # Unit tests
-    │   ├── ComponentName.test.tsx
-    │   └── ...
-    ├── integration/        # Integration tests
-    └── e2e/               # End-to-end tests (Cypress)
+__tests__/
+├── config/               # Test configuration files
+│   ├── jest.config.js   # Jest configuration
+│   └── jest.setup.js    # Jest setup and global configuration
+├── helpers/             # Test helper functions and utilities
+│   ├── db.ts           # Database test helpers
+│   └── mocks/          # Mock implementations
+├── unit/               # Unit tests
+│   ├── components/     # Component tests
+│   ├── db/            # Database tests
+│   └── lib/           # Library/utility tests
+├── integration/        # Integration tests
+├── e2e/               # End-to-end tests
+└── types/             # Test-specific type definitions
 ```
+
+## Test Categories
+
+- **Unit Tests**: Individual component and function tests
+- **Integration Tests**: API and service integration tests
+- **E2E Tests**: Full user flow tests using Cypress
+- **Database Tests**: Database operations and integrity tests
 
 ## Running Tests
 
 ### Available Commands
 
 ```bash
-# Run all unit tests
+# Run all tests
 npm test
 
-# Run tests in watch mode (during development)
+# Run tests in watch mode
 npm run test:watch
 
-# Run tests with coverage report
+# Run tests with coverage
 npm run test:coverage
-
-# Run tests in CI mode
-npm run test:ci
 
 # Run E2E tests
 npm run test:e2e
-
-# Open Cypress test runner
-npm run test:e2e:open
-
-# Run all tests (unit + E2E)
-npm run test:all
 ```
+
+## Configuration
+
+All test configuration is kept in the `config` directory:
+- `jest.config.js`: Main Jest configuration
+- `jest.setup.js`: Global test setup and configuration
+
+## Helper Functions
+
+The `helpers` directory contains reusable test utilities:
+- Database setup and teardown
+- Mock implementations
+- Test data generators
 
 ## Writing Tests
 

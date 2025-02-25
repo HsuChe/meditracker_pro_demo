@@ -119,7 +119,7 @@ export default function TwoFactorSetup() {
         </CardContent>
         <CardFooter>
           <p className="text-xs text-center text-muted-foreground w-full">
-            You'll need to enter a code from your authenticator app each time you sign in
+            You&apos;ll need to enter a code from your authenticator app each time you sign in
           </p>
         </CardFooter>
       </Card>

@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Menu, X, UserCircle } from "lucide-react"
+import { Menu, X } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { UserButton } from "@clerk/nextjs"
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
@@ -40,11 +41,9 @@ export function Navbar() {
             <NavLink href="/dashboard/cases">Case Management</NavLink>
             <NavLink href="/dashboard/saas">SaaS Dashboard</NavLink>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
             <ThemeToggle />
-            <Link href="/account" className="text-foreground">
-              <UserCircle className="h-6 w-6" />
-            </Link>
+            <UserButton afterSignOutUrl="/"/>
             {isMobile && (
               <Button variant="ghost" size="icon" onClick={toggleMenu}>
                 {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
