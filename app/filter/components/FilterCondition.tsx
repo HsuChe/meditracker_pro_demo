@@ -1,3 +1,5 @@
+"use client"
+
 import { useState, useEffect } from "react"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
@@ -17,6 +19,7 @@ import { format } from "date-fns"
 import { type DateRange } from "react-day-picker"
 import { operatorNeedsInput, operatorNeedsSecondInput } from '../utils'
 import React from "react"
+import { currentConfig } from '@/app/config'
 
 interface ColumnInfo {
   name: string;
@@ -48,6 +51,8 @@ interface FilterConditionProps {
   lutNames: string[];
   ingestedIds?: number[];
 }
+
+const getApiUrl = () => currentConfig.apiUrl;
 
 export function FilterCondition({
   id,
@@ -82,30 +87,53 @@ export function FilterCondition({
   useEffect(() => {
     const fetchDiagnosisCodes = async () => {
       try {
-        // Only fetch if we haven't already fetched for these IDs
-        if (hasFetchedRef.current) return;
+        // Validate ingestedIds
+        if (!Array.isArray(ingestedIds) || ingestedIds.length === 0) {
+          console.log('No ingested IDs available, skipping diagnosis codes fetch');
+          return;
+        }
+
+        // Check if we've already fetched for these IDs
+        if (hasFetchedRef.current) {
+          console.log('Already fetched diagnosis codes for these IDs');
+          return;
+        }
         
-        const response = await fetch('http://localhost:5000/api/filters/diagnosis-codes', {
+        console.log('Fetching diagnosis codes for IDs:', ingestedIds);
+        
+        const response = await fetch(`${getApiUrl()}/api/filters/diagnosis-codes`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            ingestedIds
+            ingestedIds: ingestedIds.filter(id => typeof id === 'number')
           })
         });
         
-        if (response.ok) {
-          const result = await response.json();
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          console.error('Failed to fetch diagnosis codes:', {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorData
+          });
+          return;
+        }
+
+        const result = await response.json();
+        if (result.success && result.data) {
           setDiagnosisCodes(result.data);
           hasFetchedRef.current = true;
+        } else {
+          console.error('Invalid response format:', result);
         }
       } catch (error) {
         console.error('Error fetching diagnosis codes:', error);
       }
     };
 
-    if (useLUT && condition.column === 'diagnosis_code' && ingestedIds.length > 0) {
+    if (useLUT && condition.column === 'diagnosis_code') {
       fetchDiagnosisCodes();
     }
   }, [useLUT, condition.column, ingestedIds]);

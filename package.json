@@ -23,7 +23,7 @@
     "setup:local": "tsx scripts/setup-local-db.ts",
     "setup:test": "cross-env NODE_ENV=test tsx scripts/setup-test-db.ts",
     "test:setup": "npm run setup:test && cross-env NODE_ENV=test jest -c app/__tests__/config/jest.config.js --runInBand",
-    "test:db": "cross-env NODE_ENV=test jest -c app/__tests__/config/jest.config.js app/__tests__/unit/db --runInBand",
+    "test:db": "cross-env NODE_ENV=test concurrently \"node backend/server.js\" \"next dev\"",
     "test:db:setup": "powershell -Command \"npm run setup:test; if ($?) { npm run test:db }\"",
     "migrate:dev": "cross-env NODE_ENV=development tsx scripts/migrate.ts",
     "migrate:prod": "cross-env NODE_ENV=production tsx scripts/migrate.ts",
@@ -32,7 +32,8 @@
     "dev:setup": "npm run setup:local && npm run migrate:dev && npm run seed:dev",
     "dev:fresh": "npm run dev:setup && npm run dev",
     "test:db:prod": "cross-env NODE_ENV=production tsx scripts/test-db-connection.ts",
-    "prod:setup": "npm run migrate:prod && npm run seed:prod"
+    "prod:setup": "npm run migrate:prod && npm run seed:prod",
+    "test:server": "cross-env NODE_ENV=test node backend/server.js"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.12.0",

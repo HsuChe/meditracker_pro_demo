@@ -7,6 +7,9 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Trash2 } from "lucide-react"
+import { currentConfig } from '@/app/config'
+
+const getApiUrl = () => currentConfig.apiUrl;
 
 interface Mapping {
   csvColumn: string
@@ -40,7 +43,7 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
   useEffect(() => {
     const fetchSavedMappings = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/mappings');
+        const response = await fetch(`${getApiUrl()}/api/mappings`);
         if (response.ok) {
           const data = await response.json();
           setSavedMappings(data);
@@ -57,7 +60,7 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
   useEffect(() => {
     const fetchDbColumns = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/db-columns');
+        const response = await fetch(`${getApiUrl()}/api/db-columns`);
         if (response.ok) {
           const columns = await response.json();
           setAvailableDbColumns(prev => {
@@ -100,7 +103,7 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
     }
 
     try {
-      const response = await fetch('http://localhost:5000/api/mappings', {
+      const response = await fetch(`${getApiUrl()}/api/mappings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -150,7 +153,7 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
         return;
       }
 
-      const response = await fetch(`http://localhost:5000/api/mappings/${mappingId}`, {
+      const response = await fetch(`${getApiUrl()}/api/mappings/${mappingId}`, {
         method: 'DELETE'
       });
 

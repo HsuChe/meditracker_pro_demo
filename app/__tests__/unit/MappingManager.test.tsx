@@ -3,7 +3,9 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { expect } from '@jest/globals';
 import { MappingManager } from '@/app/ingestion/components/mapping-manager';
+import { getTestApiUrl } from '../test-config';
 
 // Mocking the Select component with proper type annotations
 jest.mock('@/components/ui/select', () => {
@@ -49,6 +51,8 @@ global.fetch = mockFetch;
 // Mock alert
 global.alert = jest.fn();
 
+const API_URL = getTestApiUrl();
+
 describe('MappingManager', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -77,13 +81,13 @@ describe('MappingManager', () => {
     const onMappingSelect = jest.fn();
 
     global.fetch = jest.fn().mockImplementation((url, options) => {
-      if (url === 'http://localhost:5000/api/mappings') {
+      if (url === `${API_URL}/api/mappings`) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve(mockSavedMappings)
         });
       }
-      if (url === 'http://localhost:5000/api/db-columns') {
+      if (url === `${API_URL}/api/db-columns`) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve(mockDbColumns)
@@ -105,8 +109,8 @@ describe('MappingManager', () => {
     });
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith('http://localhost:5000/api/mappings');
-      expect(global.fetch).toHaveBeenCalledWith('http://localhost:5000/api/db-columns');
+      expect(global.fetch).toHaveBeenCalledWith(`${API_URL}/api/mappings`);
+      expect(global.fetch).toHaveBeenCalledWith(`${API_URL}/api/db-columns`);
       expect(screen.getByText('Mapping 1')).toBeInTheDocument();
     });
 
@@ -152,13 +156,13 @@ describe('MappingManager', () => {
     const onMappingSelect = jest.fn();
 
     global.fetch = jest.fn().mockImplementation((url, options) => {
-      if (url === 'http://localhost:5000/api/mappings') {
+      if (url === `${API_URL}/api/mappings`) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve(mockSavedMappings)
         });
       }
-      if (url === 'http://localhost:5000/api/db-columns') {
+      if (url === `${API_URL}/api/db-columns`) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
@@ -211,7 +215,7 @@ describe('MappingManager', () => {
     };
 
     global.fetch = jest.fn().mockImplementation((url, options) => {
-      if (url === 'http://localhost:5000/api/mappings') {
+      if (url === `${API_URL}/api/mappings`) {
         if (options && options.method === 'POST') {
           return Promise.resolve({
             ok: true,
@@ -220,7 +224,7 @@ describe('MappingManager', () => {
         }
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
-      if (url === 'http://localhost:5000/api/db-columns') {
+      if (url === `${API_URL}/api/db-columns`) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
@@ -251,7 +255,7 @@ describe('MappingManager', () => {
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'http://localhost:5000/api/mappings',
+      `${API_URL}/api/mappings`,
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -274,10 +278,10 @@ describe('MappingManager', () => {
     const onMappingSelect = jest.fn();
 
     global.fetch = jest.fn().mockImplementation((url, options) => {
-      if (url === 'http://localhost:5000/api/mappings') {
+      if (url === `${API_URL}/api/mappings`) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
-      if (url === 'http://localhost:5000/api/db-columns') {
+      if (url === `${API_URL}/api/db-columns`) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
@@ -331,13 +335,13 @@ describe('MappingManager', () => {
 
     // Initial fetch returns the saved mapping
     global.fetch = jest.fn().mockImplementation((url, options) => {
-      if (url === 'http://localhost:5000/api/mappings') {
+      if (url === `${API_URL}/api/mappings`) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(mockSavedMappings) });
       }
-      if (url === 'http://localhost:5000/api/db-columns') {
+      if (url === `${API_URL}/api/db-columns`) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
-      if (url.startsWith('http://localhost:5000/api/mappings/')) {
+      if (url.startsWith(`${API_URL}/api/mappings/`)) {
         // For DELETE call
         return Promise.resolve({ ok: true });
       }
@@ -364,15 +368,15 @@ describe('MappingManager', () => {
 
     // Simulate deletion API call
     await act(async () => {
-      await fetch('http://localhost:5000/api/mappings/1', { method: 'DELETE' });
+      await fetch(`${API_URL}/api/mappings/1`, { method: 'DELETE' });
     });
 
     // Now simulate that new fetch returns an empty array of saved mappings
     global.fetch = jest.fn().mockImplementation((url, options) => {
-      if (url === 'http://localhost:5000/api/mappings') {
+      if (url === `${API_URL}/api/mappings`) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
-      if (url === 'http://localhost:5000/api/db-columns') {
+      if (url === `${API_URL}/api/db-columns`) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });

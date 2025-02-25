@@ -1,6 +1,7 @@
 // server.js
+const path = require('path');
 require('dotenv').config({
-  path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env'
+  path: path.resolve(process.cwd(), `.env.${process.env.NODE_ENV || 'development'}`)
 });
 const express = require('express');
 const cors = require('cors');
@@ -12,18 +13,20 @@ const mappingRoutes = require('./routes/mappingRoutes');
 const dbColumnsRoutes = require('./routes/dbColumnsRoutes');
 const lutController = require('./controllers/lutController');
 const filterController = require('./controllers/filterController');
+const testRoutes = require('./routes/testRoutes');
 
 const app = express();
 
 // Log environment configuration on startup
 console.log('Current environment:', process.env.NODE_ENV);
+console.log('Using environment file:', `.env.${process.env.NODE_ENV || 'development'}`);
 console.log('Database connection details:', {
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD ? '[password provided]' : '[no password]',
-  passwordLength: process.env.DB_PASSWORD ? process.env.DB_PASSWORD.length : 0
+  host: process.env.POSTGRES_HOST,
+  port: process.env.POSTGRES_PORT,
+  database: process.env.POSTGRES_DATABASE,
+  user: process.env.POSTGRES_USER,
+  password: process.env.POSTGRES_PASSWORD ? '[password provided]' : '[no password]',
+  passwordLength: process.env.POSTGRES_PASSWORD ? process.env.POSTGRES_PASSWORD.length : 0
 });
 
 // Increase payload size limits even further for large CSV files
@@ -44,9 +47,16 @@ app.use(express.urlencoded({
   parameterLimit: 50000
 }));
 
-// Configure CORS for development
+// Configure CORS for development and production
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: [
+    'http://localhost:3000', 
+    'http://127.0.0.1:3000',
+    'https://accuratiohealth.com',
+    'https://www.accuratiohealth.com',
+    /\.onrender\.com$/,  // Allow all Render domains
+    /\.vercel\.app$/     // Allow all Vercel preview domains
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   credentials: true,
   maxAge: 86400,
@@ -60,6 +70,7 @@ app.use((req, res, next) => {
 });
 
 // Routes - Order matters! More specific routes should come first
+app.use('/api/test', testRoutes);
 app.use('/api/db-columns', dbColumnsRoutes);
 app.use('/api/filters', filterRoutes);
 app.use('/api/claims', claimRoutes);
@@ -122,9 +133,9 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Move the server listening part to only run if not being tested
-if (process.env.NODE_ENV !== 'test') {
-    const PORT = process.env.PORT || 5000;
+// Start the server unless we're running unit tests
+if (!process.env.JEST_WORKER_ID) {
+    const PORT = process.env.PORT || 5001;
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
         console.log('Environment:', process.env.NODE_ENV);

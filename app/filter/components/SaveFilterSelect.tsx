@@ -1,84 +1,70 @@
 import React from 'react';
-import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { Select, SelectContent, SelectTrigger, SelectValue, SelectItem } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Check, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Trash2 } from "lucide-react";
 import { SavedFilter } from '../types';
 import { Button } from "@/components/ui/button";
 
-interface SavedFiltersSelectProps {
+export interface SaveFilterSelectProps {
   savedFilters: SavedFilter[];
-  selectedFilter: string | null;
-  onFilterSelect: (filterName: string) => void;
-  onDeleteFilter: (filterName: string) => void;
+  selectedFilter: SavedFilter | null;
+  onFilterSelect: (filter: SavedFilter | null) => void;
+  onDeleteFilter: (filter: SavedFilter) => void;
 }
 
-const SavedFiltersSelect: React.FC<SavedFiltersSelectProps> = ({
-  savedFilters,
+export function SaveFilterSelect({
+  savedFilters = [],
   selectedFilter,
   onFilterSelect,
   onDeleteFilter,
-}) => {
+}: SaveFilterSelectProps) {
+  const filters = Array.isArray(savedFilters) ? savedFilters : [];
+  
   return (
     <div className="mb-8">
       <Label htmlFor="saved-filters">Saved Filters</Label>
       <Select
-        value={selectedFilter || ""}
-        onValueChange={onFilterSelect}
+        value={selectedFilter?.filter_id?.toString()}
+        onValueChange={(value) => {
+          const filter = filters.find((f) => f.filter_id.toString() === value);
+          onFilterSelect(filter || null);
+        }}
       >
-        <SelectTrigger className="w-full" id="saved-filters">
-          <SelectValue>
-            {selectedFilter || "Select a saved filter..."}
-          </SelectValue>
+        <SelectTrigger className="w-[280px]">
+          <SelectValue placeholder="Select a saved filter" />
         </SelectTrigger>
         <SelectContent>
-          <Command>
-            <CommandInput placeholder="Search filters..." className="h-9" />
-            <CommandEmpty>No filter found.</CommandEmpty>
-            <CommandGroup>
-              {savedFilters.map((filter) => (
-                <CommandItem
-                  key={`${filter.filter_id}-${filter.name}`}
-                  value={filter.name}
-                  onSelect={() => onFilterSelect(filter.name)}
-                  className="flex justify-between items-center"
-                >
-                  <div className="flex items-center">
-                    <Check
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        selectedFilter === filter.name ? "opacity-100" : "opacity-0"
-                      )}
-                    />
-                    <div className="flex flex-col gap-0.5">
-                      <span>{filter.name}</span>
-                      {filter.description && (
-                        <span className="text-xs text-muted-foreground font-normal">
-                          {filter.description}
-                        </span>
-                      )}
-                    </div>
+          {filters.length === 0 ? (
+            <SelectItem value="empty" disabled>
+              No saved filters
+            </SelectItem>
+          ) : (
+            filters.map((filter) => (
+              <SelectItem key={filter.filter_id} value={filter.filter_id.toString()}>
+                <div className="flex items-center justify-between w-full group">
+                  <div className="flex-1">
+                    <div>{filter.name}</div>
+                    {filter.description && (
+                      <div className="text-sm text-gray-500">{filter.description}</div>
+                    )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 p-0"
+                  <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDeleteFilter(filter.name);
+                      onDeleteFilter(filter);
                     }}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
                   >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </Command>
+                    <Trash2 className="h-4 w-4 text-red-500" />
+                  </button>
+                </div>
+              </SelectItem>
+            ))
+          )}
         </SelectContent>
       </Select>
     </div>
   );
-};
+}
 
-export default SavedFiltersSelect;
+export default SaveFilterSelect;

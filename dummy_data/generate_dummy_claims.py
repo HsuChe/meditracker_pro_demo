@@ -338,6 +338,9 @@ def generate_base_claim_data():
     condition_codes = [random.randint(1, 99) if random.random() > 0.5 else None for _ in range(10)]
     occurrence_codes = [random.randint(1, 99) if random.random() > 0.5 else None for _ in range(4)]
     
+    # Generate discharge_code (1-99)
+    discharge_code = random.randint(1, 99)
+    
     # Generate lab service charge with proper decimal precision - never NULL
     lab_charge = round(random.uniform(0.0, 1000.0), 2) if random.random() > 0.3 else 0.00
 
@@ -363,6 +366,7 @@ def generate_base_claim_data():
         "procedure_code": random.choice(PROCEDURE_CODES[form_type]),
         "admission_date": admission_date.strftime("%Y-%m-%d"),
         "discharge_date": discharge_date.strftime("%Y-%m-%d"),
+        "discharge_code": discharge_code,  # New field
         "revenue_code": str(random.choice(REVENUE_CODES[form_type])).zfill(3)[:3],  # Ensure 3 characters
         "modifiers": random.choice(MODIFIERS[form_type]),
         "claim_type": form_type,
@@ -609,9 +613,9 @@ def export_to_csv(filename, data):
                     is_numeric = data_type in ('numeric', 'decimal', 'integer', 'bigint', 'smallint')
                 
                 if value is None:
-                    # Special handling for condition codes and occurrence codes
-                    if key.startswith(('condition_code_', 'occurrence_code_')):
-                        cleaned_row[key] = ''  # Use empty string for NULL condition/occurrence codes
+                    # Special handling for condition codes, occurrence codes, and discharge_code
+                    if key.startswith(('condition_code_', 'occurrence_code_')) or key == 'discharge_code':
+                        cleaned_row[key] = ''  # Use empty string for NULL codes
                     # Special handling for emg_indicator (must be 1 or NULL)
                     elif key == 'emg_indicator':
                         cleaned_row[key] = ''  # Use empty string for NULL
@@ -624,8 +628,8 @@ def export_to_csv(filename, data):
                     else:
                         cleaned_row[key] = ''
                 else:
-                    # Special handling for condition codes and occurrence codes
-                    if key.startswith(('condition_code_', 'occurrence_code_')):
+                    # Special handling for condition codes, occurrence codes, and discharge_code
+                    if key.startswith(('condition_code_', 'occurrence_code_')) or key == 'discharge_code':
                         # Ensure value is between 1-99 or NULL
                         try:
                             val = int(value)

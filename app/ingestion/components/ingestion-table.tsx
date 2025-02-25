@@ -11,6 +11,7 @@ import { DatePickerWithRange } from "@/components/ui/date-range-picker"
 import { Search, ChevronDown, ChevronRight } from "lucide-react"
 import { addDays } from "date-fns"
 import React from "react"
+import { getApiUrl } from '@/app/config'
 
 interface IngestedData {
   ingested_data_id: number;
@@ -107,7 +108,7 @@ export function IngestionTable({
         params.append('toDate', searchFilters.dateRange.to.toISOString());
       }
 
-      const response = await fetch(`http://localhost:5000/api/ingested-data?${params.toString()}`);
+      const response = await fetch(`${getApiUrl()}/api/ingested-data?${params.toString()}`);
 
       if (response.ok) {
         const data = await response.json();
@@ -148,7 +149,7 @@ export function IngestionTable({
 
   const handleView = useCallback(async (id: number, type: string) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/ingested-data/${id}`);
+      const response = await fetch(`${getApiUrl()}/api/ingested-data/${id}`);
       if (response.ok) {
         const data = await response.json();
         // Show metadata and entries in a modal
@@ -171,7 +172,7 @@ export function IngestionTable({
       try {
         if (isGroup && groupName) {
           // Delete all batches by ingestion name
-          const response = await fetch(`http://localhost:5000/api/ingested-data/name/${encodeURIComponent(groupName)}`, {
+          const response = await fetch(`${getApiUrl()}/api/ingested-data/name/${encodeURIComponent(groupName)}`, {
             method: 'DELETE'
           });
           
@@ -180,7 +181,7 @@ export function IngestionTable({
             throw new Error(errorData.details || `Failed to delete ${type.toLowerCase()} group`);
           }
         } else {
-          const response = await fetch(`http://localhost:5000/api/ingested-data/${id}`, {
+          const response = await fetch(`${getApiUrl()}/api/ingested-data/${id}`, {
             method: 'DELETE'
           });
           
@@ -201,7 +202,7 @@ export function IngestionTable({
   const handleClearAll = async () => {
     if (confirm('Are you sure you want to delete ALL ingestion records and their associated claims? This cannot be undone.')) {
       try {
-        const response = await fetch('http://localhost:5000/api/ingested-data/clear-all', {
+        const response = await fetch(`${getApiUrl()}/api/ingested-data/clear-all`, {
           method: 'DELETE'
         });
         

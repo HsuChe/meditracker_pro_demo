@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { UploadProgress } from "./upload-progress"
 import { parse } from 'papaparse'
+import { currentConfig } from '@/app/config'
 
+const getApiUrl = () => currentConfig.apiUrl;
 
 interface ClaimsSubmitterProps {
   csvData: any[];
@@ -57,7 +59,7 @@ export function ClaimsSubmitter({
     const fetchMapping = async () => {
       if (!mappingId) return;
       try {
-        const response = await fetch(`http://localhost:5000/api/mappings/${mappingId}`);
+        const response = await fetch(`${getApiUrl()}/api/mappings/${mappingId}`);
         if (response.ok) {
           const data = await response.json();
           setMappingData(data);
@@ -73,7 +75,7 @@ export function ClaimsSubmitter({
     // Fetch saved mappings when component mounts
     const fetchSavedMappings = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/mappings');
+        const response = await fetch(`${getApiUrl()}/api/mappings`);
         if (response.ok) {
           const data = await response.json();
           setSavedMappings(data);
@@ -162,7 +164,7 @@ export function ClaimsSubmitter({
         };
 
         // Upload batch
-        const response = await fetch('http://localhost:5000/api/ingested-data', {
+        const response = await fetch(`${getApiUrl()}/api/ingested-data`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

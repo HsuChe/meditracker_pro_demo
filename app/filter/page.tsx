@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo, useCallback } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,9 @@ import FilterKeys from "./components/FiltersKeys"
 import ClaimsTable from "./components/ClaimsTable"
 import SaveFilterDialog from "./components/SaveFilterDialog"
 import SavedFiltersSelect from "./components/SaveFilterSelect"
+import { currentConfig } from '@/app/config'
+
+const getApiUrl = () => currentConfig.apiUrl;
 
 interface IngestedDataRecord {
   type: string;
@@ -60,7 +63,7 @@ export default function FilterPage() {
     }]
   }])
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([])
-  const [selectedFilter, setSelectedFilter] = useState<string | null>(null)
+  const [selectedFilter, setSelectedFilter] = useState<SavedFilter | null>(null)
   const [claims, setClaims] = useState<ClaimData[]>([])
   const [columns, setColumns] = useState<ColumnInfo[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -78,12 +81,22 @@ export default function FilterPage() {
   const [loading, setLoading] = useState(false)
 
   // Memoize the ingested IDs array
-  const ingestedLutIds = useMemo(() => 
-    ingestedData.records
-      .filter((record: any) => record.type === 'lut')
-      .map((record: any) => record.ingested_data_id),
-    [ingestedData.records] // Only recompute when records change
-  );
+  const ingestedLutIds = useMemo(() => {
+    if (!ingestedData?.records || !Array.isArray(ingestedData.records)) {
+      console.log('No ingested data records available');
+      return [];
+    }
+
+    const validRecords = ingestedData.records.filter((record: any) => 
+      record && 
+      typeof record === 'object' && 
+      record.type === 'lut' &&
+      typeof record.ingested_data_id === 'number'
+    );
+
+    console.log('Found valid LUT records:', validRecords.length);
+    return validRecords.map((record: any) => record.ingested_data_id);
+  }, [ingestedData.records]);
 
   // Load initial data
   useEffect(() => {
@@ -92,9 +105,9 @@ export default function FilterPage() {
         setIsLoading(true)
         
         const [claimsResponse, columnTypesResponse, ingestedDataResponse] = await Promise.all([
-          fetch(`http://localhost:5000/api/filters/claims?page=1&limit=${pageSize}`),
-          fetch('http://localhost:5000/api/filters/claimsDtype'),
-          fetch('http://localhost:5000/api/luts')
+          fetch(`${getApiUrl()}/api/filters/claims?page=1&limit=${pageSize}`),
+          fetch(`${getApiUrl()}/api/filters/claimsDtype`),
+          fetch(`${getApiUrl()}/api/luts`)
         ])
 
         if (!claimsResponse.ok || !columnTypesResponse.ok || !ingestedDataResponse.ok) {
@@ -105,30 +118,43 @@ export default function FilterPage() {
         const columnTypes = await columnTypesResponse.json() as ColumnTypeResponse
         const lutsData = await ingestedDataResponse.json()
 
-        // Set ingested data with the correct structure
-        setIngestedData({ records: lutsData.records || [] });
+        // Validate and set ingested data
+        const validRecords = Array.isArray(lutsData.records) ? lutsData.records : [];
+        setIngestedData({ records: validRecords });
 
-        // Get LUT records that are active and their IDs
-        const activeLUTRecords = lutsData.records.filter((record: LUTRecord) => record.activity_status === 'active');
+        // Get active LUT records and their IDs
+        const activeLUTRecords = validRecords.filter((record: LUTRecord) => 
+          record && record.activity_status === 'active' && typeof record.ingested_data_id === 'number'
+        );
+
         const activeIngestedIds = activeLUTRecords.map((lut: LUTRecord) => lut.ingested_data_id);
         
-        // Fetch diagnosis codes using the diagnosis-codes endpoint
-        const diagnosisCodesResponse = await fetch('http://localhost:5000/api/filters/diagnosis-codes', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            ingestedIds: activeIngestedIds
-          })
-        });
-
-        if (diagnosisCodesResponse.ok) {
-          const diagnosisCodesData = await diagnosisCodesResponse.json();
+        if (activeIngestedIds.length > 0) {
+          console.log('Fetching diagnosis codes for active LUTs:', activeIngestedIds);
           
-          if (diagnosisCodesData.success) {
-            setDiagnosisCodes(diagnosisCodesData.data);
+          // Fetch diagnosis codes using the diagnosis-codes endpoint
+          const diagnosisCodesResponse = await fetch(`${getApiUrl()}/api/filters/diagnosis-codes`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              ingestedIds: activeIngestedIds
+            })
+          });
+
+          if (diagnosisCodesResponse.ok) {
+            const diagnosisCodesData = await diagnosisCodesResponse.json();
+            if (diagnosisCodesData.success) {
+              setDiagnosisCodes(diagnosisCodesData.data);
+            } else {
+              console.error('Failed to fetch diagnosis codes:', diagnosisCodesData);
+            }
+          } else {
+            console.error('Diagnosis codes request failed:', diagnosisCodesResponse.status);
           }
+        } else {
+          console.log('No active LUT records found');
         }
 
         // Get unique names of LUT records
@@ -180,21 +206,21 @@ export default function FilterPage() {
   const fetchSavedFilters = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:5000/api/filters/saved');
+      const response = await fetch(`${getApiUrl()}/api/filters/saved`);
       if (!response.ok) {
         throw new Error('Failed to fetch saved filters');
       }
-      const data: SavedFilter[] = await response.json();
-      setSavedFilters(data);
+      const data = await response.json();
+      setSavedFilters(data.filters || []);
 
       // If any filters were cleaned up (have different claims_ids), show a notification
-      const cleanedFilters = data.filter(filter => 
+      const cleanedFilters = (data.filters || []).filter((filter: SavedFilter) => 
         filter.last_updated && new Date(filter.last_updated).getTime() > Date.now() - 5000
       );
       
       if (cleanedFilters.length > 0) {
         alert(`Some filters were updated to remove references to deleted claims: ${
-          cleanedFilters.map(f => f.name).join(', ')
+          cleanedFilters.map((f: SavedFilter) => f.name).join(', ')
         }`);
       }
     } catch (error) {
@@ -435,7 +461,7 @@ export default function FilterPage() {
         created_by: "system"
       };
 
-      const response = await fetch('http://localhost:5000/api/filters/save', {
+      const response = await fetch(`${getApiUrl()}/api/filters/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -469,17 +495,16 @@ export default function FilterPage() {
     }
   }
 
-  const handleLoadFilter = async (filterName: string) => {
-    const filter = savedFilters.find((f) => f.name === filterName);
+  const handleLoadFilter = async (filter: SavedFilter | null) => {
     if (!filter) return;
 
     try {
       setIsLoading(true);
       setFilterName(filter.name);
       setFilterDescription(filter.description || '');
-      setSelectedFilter(filterName);
+      setSelectedFilter(filter);
 
-      const response = await fetch(`http://localhost:5000/api/filters/execute/${filter.filter_id}`);
+      const response = await fetch(`${getApiUrl()}/api/filters/execute/${filter.filter_id}`);
 
       if (!response.ok) {
         throw new Error('Failed to load saved filter data');
@@ -643,7 +668,7 @@ export default function FilterPage() {
 
       console.log('Sending payload to server:', JSON.stringify(payload, null, 2));
 
-      const response = await fetch('http://localhost:5000/api/filters/claims', {
+      const response = await fetch(`${getApiUrl()}/api/filters/claims`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -746,7 +771,7 @@ export default function FilterPage() {
         limit: pageSize
       };
 
-      const response = await fetch('http://localhost:5000/api/filters/claims', {
+      const response = await fetch(`${getApiUrl()}/api/filters/claims`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -814,7 +839,7 @@ export default function FilterPage() {
         limit: newSize
       };
 
-      const response = await fetch('http://localhost:5000/api/filters/claims', {
+      const response = await fetch(`${getApiUrl()}/api/filters/claims`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -857,13 +882,13 @@ export default function FilterPage() {
     });
   }
 
-  const handleDeleteFilter = async (filterName: string) => {
-    if (!confirm(`Are you sure you want to delete the filter "${filterName}"?`)) {
+  const handleDeleteFilter = async (filter: SavedFilter) => {
+    if (!confirm(`Are you sure you want to delete the filter "${filter.name}"?`)) {
       return;
     }
 
     try {
-      const response = await fetch(`http://localhost:5000/api/filters/saved/${encodeURIComponent(filterName)}`, {
+      const response = await fetch(`${getApiUrl()}/api/filters/saved/${encodeURIComponent(filter.name)}`, {
         method: 'DELETE'
       });
 
@@ -875,7 +900,7 @@ export default function FilterPage() {
       fetchSavedFilters();
       
       // Clear selection if the deleted filter was selected
-      if (selectedFilter === filterName) {
+      if (selectedFilter?.filter_id === filter.filter_id) {
         setSelectedFilter(null);
       }
     } catch (error) {
@@ -887,7 +912,7 @@ export default function FilterPage() {
   const handleDeleteAllFilters = async () => {
     if (confirm('Are you sure you want to delete ALL saved filters? This cannot be undone.')) {
       try {
-        const response = await fetch('http://localhost:5000/api/filters/saved', {
+        const response = await fetch(`${getApiUrl()}/api/filters/saved`, {
           method: 'DELETE',
         });
 

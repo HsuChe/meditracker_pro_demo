@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server'
-
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000'
+import { getApiUrl } from '@/app/config'
 
 export async function GET(
   request: Request,
   { params }: { params: { filterId: string } }
 ) {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/filters/execute/${params.filterId}`)
+    const response = await fetch(`${getApiUrl()}/api/filters/execute/${params.filterId}`)
     const data = await response.json()
 
     return NextResponse.json(data)

@@ -1,39 +1,41 @@
 /// <reference types="@testing-library/jest-dom" />
 import '@testing-library/jest-dom';
+import { expect } from '@jest/globals';
+import { getTestApiUrl } from '../test-config';
+
+const API_BASE_URL = getTestApiUrl();
+
+// Test data
+const mockMapping = {
+  name: 'Test Mapping',
+  mappings: [
+    { csvColumn: 'header1', dbColumn: 'db_column1' },
+    { csvColumn: 'header2', dbColumn: 'db_column2' }
+  ]
+};
+
+const mockBatchPayload = {
+  name: 'Test Ingestion',
+  data: [
+    { db_column1: 'data1', db_column2: 'data2' }
+  ],
+  mapping_id: 1,
+  record_count: 1,
+  file_size_bytes: 100,
+  batch_number: 0,
+  total_batches: 1,
+  parent_ingestion_id: null
+};
+
+// Mock fetch for integration tests
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
 
 describe('Claims API Integration Tests', () => {
-  const API_BASE_URL = 'http://localhost:5000';
-  
-  // Test data
-  const mockMapping = {
-    name: 'Test Mapping',
-    mappings: [
-      { csvColumn: 'header1', dbColumn: 'db_column1' },
-      { csvColumn: 'header2', dbColumn: 'db_column2' }
-    ]
-  };
-
-  const mockBatchPayload = {
-    name: 'Test Ingestion',
-    data: [
-      { db_column1: 'data1', db_column2: 'data2' }
-    ],
-    mapping_id: 1,
-    record_count: 1,
-    file_size_bytes: 100,
-    batch_number: 0,
-    total_batches: 1,
-    parent_ingestion_id: null
-  };
-
-  // Mock fetch for integration tests
-  const mockFetch = jest.fn();
-  global.fetch = mockFetch;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
   describe('Mappings API', () => {
     it('should fetch mapping by ID', async () => {
       mockFetch.mockImplementationOnce(() => 

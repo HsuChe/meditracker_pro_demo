@@ -262,8 +262,18 @@ const validateAndCleanFilter = async (client, filter) => {
 const getSavedFilters = async (req, res) => {
     const client = await pool.connect();
     try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+
+        // Get total count
+        const countResult = await client.query('SELECT COUNT(*) FROM saved_filters');
+        const totalCount = parseInt(countResult.rows[0].count);
+
+        // Get paginated filters
         const result = await client.query(
-            'SELECT * FROM saved_filters ORDER BY last_updated DESC'
+            'SELECT * FROM saved_filters ORDER BY last_updated DESC LIMIT $1 OFFSET $2',
+            [limit, offset]
         );
 
         // Validate and clean up each filter
@@ -271,7 +281,15 @@ const getSavedFilters = async (req, res) => {
             result.rows.map(filter => validateAndCleanFilter(client, filter))
         );
 
-        res.json(validatedFilters);
+        res.json({
+            filters: validatedFilters,
+            pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(totalCount / limit),
+                totalRecords: totalCount,
+                pageSize: limit
+            }
+        });
     } catch (error) {
         console.error('Error fetching saved filters:', error);
         res.status(500).json({ error: 'Internal server error' });

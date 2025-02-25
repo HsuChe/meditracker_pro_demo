@@ -1,7 +1,11 @@
-import { render, screen, act, fireEvent } from '@testing-library/react'
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
+import { expect } from '@jest/globals'
 import { IngestionTable } from '@/app/ingestion/components/ingestion-table'
 import { ClaimsSubmitter } from '@/app/ingestion/components/claims-submitter'
+import { getTestApiUrl } from '../../test-config'
+
+const API_URL = getTestApiUrl()
 
 // Mock fetch for API calls
 global.fetch = jest.fn()
@@ -112,12 +116,12 @@ describe('Total Size Calculation', () => {
       // Mock fetch responses
       ;(global.fetch as jest.Mock)
         .mockImplementation(async (url, options) => {
-          if (url === 'http://localhost:5000/api/mappings/1') {
+          if (url === `${API_URL}/api/mappings/1`) {
             return {
               ok: true,
               json: async () => mockMappingData
             }
-          } else if (url === 'http://localhost:5000/api/ingested-data') {
+          } else if (url === `${API_URL}/api/ingested-data`) {
             capturedPayload = JSON.parse(options.body);
             return {
               ok: true,

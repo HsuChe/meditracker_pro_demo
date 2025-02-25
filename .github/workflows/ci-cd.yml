@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, staging, develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, staging, develop ]
+    branches: [ main ]
 
 env:
   NODE_VERSION: '18.x'
@@ -43,36 +43,6 @@ jobs:
       
       - name: Run linting
         run: npm run lint
-
-  deploy-development:
-    needs: [test, lint]
-    if: github.ref == 'refs/heads/develop'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Deploy to Vercel (Development)
-        uses: amondnet/vercel-action@v20
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          vercel-args: '--prod'
-
-  deploy-staging:
-    needs: [test, lint]
-    if: github.ref == 'refs/heads/staging'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Deploy to Vercel (Staging)
-        uses: amondnet/vercel-action@v20
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          vercel-args: '--prod'
 
   deploy-production:
     needs: [test, lint]

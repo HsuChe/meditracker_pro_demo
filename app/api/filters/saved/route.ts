@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000'
+import { getApiUrl } from '@/app/config'
 
 // Explicitly mark this route as dynamic
 export const dynamic = 'force-dynamic'
@@ -11,7 +10,7 @@ export async function GET(request: Request) {
     const page = searchParams.get('page') || '1'
     const limit = searchParams.get('limit') || '10'
 
-    const response = await fetch(`${BACKEND_URL}/api/filters/saved?page=${page}&limit=${limit}`, {
+    const response = await fetch(`${getApiUrl()}/api/filters/saved?page=${page}&limit=${limit}`, {
       // Add cache: 'no-store' to ensure fresh data
       cache: 'no-store',
       headers: {
@@ -25,7 +24,16 @@ export async function GET(request: Request) {
 
     const data = await response.json()
 
-    return NextResponse.json(data)
+    // Transform the response to match the expected format
+    return NextResponse.json({
+      filters: data.filters || [],
+      pagination: {
+        currentPage: parseInt(page),
+        pageSize: parseInt(limit),
+        totalPages: data.pagination?.totalPages || 1,
+        total: data.pagination?.totalRecords || 0
+      }
+    })
   } catch (error) {
     console.error('Error fetching saved filters:', error)
     return NextResponse.json(

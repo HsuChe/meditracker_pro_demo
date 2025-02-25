@@ -24,7 +24,15 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <ClerkProvider>
+    <ClerkProvider 
+      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      appearance={{
+        elements: {
+          formButtonPrimary: "bg-primary text-primary-foreground hover:bg-primary/90",
+          footerActionLink: "text-primary hover:text-primary/90"
+        }
+      }}
+    >
       <html lang="en" suppressHydrationWarning>
         <body className={cn(inter.className, "min-h-screen bg-background antialiased")} suppressHydrationWarning>
           <ThemeProvider

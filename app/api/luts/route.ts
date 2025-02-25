@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getApiUrl } from '@/app/config';
 
 export async function POST(request: Request) {
   try {
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
     }
 
     console.log('Sending request to backend...');
-    const response = await fetch('http://localhost:5000/api/luts', {
+    const response = await fetch(`${getApiUrl()}/api/luts`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -86,7 +87,7 @@ export async function GET(request: Request) {
       ...(toDate && { toDate })
     });
 
-    const response = await fetch(`http://localhost:5000/api/luts?${queryParams}`, {
+    const response = await fetch(`${getApiUrl()}/api/luts?${queryParams}`, {
       headers: {
         'Content-Type': 'application/json',
       },

@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
-
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000'
+import { getApiUrl } from '@/app/config'
 
 export async function GET() {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/filters/claims`)
+    const response = await fetch(`${getApiUrl()}/api/filters/claims`)
     
     if (!response.ok) {
       console.error('Backend response not ok:', {
