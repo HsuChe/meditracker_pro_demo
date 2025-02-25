@@ -78,6 +78,21 @@ app.use((req, res, next) => {
   next();
 });
 
+// Root route
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'MediTracker Pro API Server',
+    environment: process.env.NODE_ENV,
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      test: '/api/test/test-db',
+      tables: '/api/test/tables'
+    }
+  });
+});
+
 // Routes - Order matters! More specific routes should come first
 app.use('/api/test', testRoutes);
 app.use('/api/db-columns', dbColumnsRoutes);
