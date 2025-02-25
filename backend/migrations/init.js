@@ -1,12 +1,47 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+// Log connection details (excluding sensitive info)
+console.log('Migration Environment:', {
+  NODE_ENV: process.env.NODE_ENV,
+  hasDBUrl: !!process.env.DATABASE_URL,
+  host: process.env.POSTGRES_HOST,
+  database: process.env.POSTGRES_DATABASE,
+  user: process.env.POSTGRES_USER
+});
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? {
-    rejectUnauthorized: false
-  } : false
+  ssl: {
+    rejectUnauthorized: false // Required for Neon
+  },
+  connectionTimeoutMillis: 10000, // 10 second timeout
 });
+
+// Add pool error handler
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+});
+
+// Test connection before running migrations
+async function testConnection() {
+  const client = await pool.connect();
+  try {
+    console.log('Testing database connection...');
+    const result = await client.query('SELECT NOW()');
+    console.log('Database connection successful:', result.rows[0]);
+    return true;
+  } catch (err) {
+    console.error('Database connection test failed:', {
+      error: err.message,
+      code: err.code,
+      detail: err.detail
+    });
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
 const migrations = [
   // Create claims_dummy table
@@ -46,6 +81,9 @@ const migrations = [
     processing_status VARCHAR(20) DEFAULT 'completed',
     ingestion_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    batch_number INTEGER,
+    total_batches INTEGER,
+    parent_ingestion_id INTEGER REFERENCES ingested_data(ingested_data_id),
     CONSTRAINT valid_activity_status CHECK (activity_status IN ('active', 'deleted')),
     CONSTRAINT valid_processing_status CHECK (processing_status IN ('processing', 'completed', 'failed'))
   )`,
@@ -63,17 +101,35 @@ const migrations = [
     record_data JSONB
   )`,
 
-  // Create indexes
+  // Create basic indexes first
   `CREATE INDEX IF NOT EXISTS idx_claims_claim_id ON claims_dummy(claim_id)`,
   `CREATE INDEX IF NOT EXISTS idx_claims_ingestion_id ON claims_dummy(ingestion_id)`,
   `CREATE INDEX IF NOT EXISTS idx_claims_claim_line ON claims_dummy(claim_id, line_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_ingested_data_date ON ingested_data(ingestion_date DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_deleted_claims_ingestion ON deleted_claims_log(ingestion_id)`
+  `CREATE INDEX IF NOT EXISTS idx_deleted_claims_ingestion ON deleted_claims_log(ingestion_id)`,
+
+  // Create index on ingestion_date after table is created
+  `DO $$
+  BEGIN
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_name = 'ingested_data' AND column_name = 'ingestion_date'
+    ) THEN
+      CREATE INDEX IF NOT EXISTS idx_ingested_data_date ON ingested_data(ingestion_date DESC);
+    END IF;
+  END $$;`
 ];
 
 async function runMigrations() {
-  const client = await pool.connect();
+  console.log('Starting migrations...');
+  let client;
+  
   try {
+    // Test connection first
+    await testConnection();
+    
+    client = await pool.connect();
+    console.log('Connected to database, beginning transaction...');
+    
     await client.query('BEGIN');
 
     for (const migration of migrations) {
@@ -81,7 +137,13 @@ async function runMigrations() {
         await client.query(migration);
         console.log('Successfully executed:', migration.split('\n')[0]);
       } catch (err) {
-        console.error('Error executing migration:', err);
+        console.error('Error executing migration:', {
+          error: err.message,
+          code: err.code,
+          detail: err.detail,
+          hint: err.hint,
+          query: migration.split('\n')[0]
+        });
         throw err;
       }
     }
@@ -89,13 +151,27 @@ async function runMigrations() {
     await client.query('COMMIT');
     console.log('All migrations completed successfully');
   } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Migration failed:', err);
+    console.error('Migration failed:', {
+      error: err.message,
+      code: err.code,
+      detail: err.detail,
+      stack: err.stack
+    });
+    if (client) {
+      await client.query('ROLLBACK');
+      console.log('Transaction rolled back');
+    }
     process.exit(1);
   } finally {
-    client.release();
-    pool.end();
+    if (client) {
+      client.release();
+    }
+    await pool.end();
   }
 }
 
-runMigrations(); 
+// Run migrations with better error handling
+runMigrations().catch(err => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+}); 

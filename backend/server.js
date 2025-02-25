@@ -1,14 +1,44 @@
 // server.js
 const path = require('path');
 
-// Try to load from env file first, but don't error if file doesn't exist
+// Debug: Log all environment variables (excluding sensitive data)
+console.log('DEBUG - Available environment variables:', Object.keys(process.env));
+console.log('DEBUG - Current working directory:', process.cwd());
+console.log('DEBUG - NODE_ENV value:', process.env.NODE_ENV);
+
+// Load environment variables based on NODE_ENV
+const envPath = path.resolve(process.cwd(), `.env.${process.env.NODE_ENV || 'development'}`);
+console.log('DEBUG - Attempting to load env file from:', envPath);
+
 try {
   require('dotenv').config({
-    path: path.resolve(process.cwd(), `.env.${process.env.NODE_ENV || 'development'}`),
-    silent: true
+    path: envPath
   });
+  console.log('DEBUG - Env file loaded successfully');
 } catch (error) {
-  console.log('No .env file found, using process.env variables');
+  console.log('DEBUG - Error loading env file:', error.message);
+}
+
+// Verify required environment variables
+const requiredEnvVars = [
+  'POSTGRES_USER',
+  'POSTGRES_PASSWORD',
+  'POSTGRES_HOST',
+  'POSTGRES_PORT',
+  'POSTGRES_DATABASE',
+  'DATABASE_URL'
+];
+
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+if (missingVars.length > 0) {
+  console.error('Missing required environment variables:', missingVars);
+  console.log('Current environment variables:', {
+    NODE_ENV: process.env.NODE_ENV,
+    POSTGRES_HOST: process.env.POSTGRES_HOST,
+    POSTGRES_DATABASE: process.env.POSTGRES_DATABASE,
+    POSTGRES_USER: process.env.POSTGRES_USER,
+    DATABASE_URL: process.env.DATABASE_URL ? '[URL PROVIDED]' : undefined
+  });
 }
 
 const express = require('express');
