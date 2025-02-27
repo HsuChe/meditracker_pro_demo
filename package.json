@@ -4,12 +4,20 @@
   "description": "MediTracker Pro Demo Application",
   "main": "backend/server.js",
   "scripts": {
-    "start": "NODE_ENV=production node backend/server.js",
-    "build": "cd backend && npm install",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "backend": "NODE_ENV=production node backend/server.js",
+    "backend:dev": "NODE_ENV=development node backend/server.js"
   },
   "engines": {
     "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "repository": {
     "type": "git",
