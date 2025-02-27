@@ -239,12 +239,14 @@ const validateAndTransformValue = (value, column, constraints) => {
           if (num < min || num > max) return null;
         }
       }
+      // Ensure we're returning a number, not a string
       return Math.floor(num);
 
     case 'numeric':
     case 'decimal':
       const decNum = Number(value);
       if (isNaN(decNum)) return null;
+      // Ensure we're returning a number, not a string
       return decNum;
 
     case 'character varying':
@@ -323,6 +325,24 @@ const createIngestedData = async (req, res) => {
 
     const ingestionId = ingestionResult.rows[0].ingested_data_id;
 
+    // Define numeric columns that need special handling
+    const numericColumns = [
+      'total_charges', 
+      'allowed_amount', 
+      'amount_paid', 
+      'balance_due', 
+      'lab_service_charge', 
+      'line_charges'
+    ];
+
+    const integerColumns = [
+      'units_days',
+      'place_of_service',
+      'provider_id',
+      'facility_id',
+      'patient_id'
+    ];
+
     // Insert claims data
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
@@ -335,11 +355,34 @@ const createIngestedData = async (req, res) => {
         return validateAndTransformValue(value, column, constraints);
       });
       
+      // Ensure numeric types are properly handled
+      const typedValues = values.map((value, i) => {
+        const column = columns[i];
+        
+        // Skip null values
+        if (value === null || value === undefined || value === '') {
+          return null;
+        }
+        
+        // Handle numeric columns
+        if (numericColumns.includes(column)) {
+          return Number(value);
+        }
+        
+        // Handle integer columns
+        if (integerColumns.includes(column)) {
+          return parseInt(value, 10);
+        }
+        
+        return value;
+      });
+      
       const query = `INSERT INTO claims_dummy 
          (${columns.join(', ')}, ingestion_id)
          VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}, $${columns.length + 1})`;
       
-      await client.query(query, [...values, ingestionId]);
+      console.log(`Inserting data with proper type handling for ${columns.length} columns`);
+      await client.query(query, [...typedValues, ingestionId]);
     }
 
     // Update status if this is the last batch
