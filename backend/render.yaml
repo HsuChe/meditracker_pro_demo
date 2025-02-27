@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: meditracker-pro-api
+    env: node
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && NODE_ENV=production node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: meditracker-db
+          property: connectionString
+      - key: CLAIMS_TABLE
+        value: claims_dummy
+      - key: FRONTEND_URL
+        value: https://meditracker-pro-demo.onrender.com
+
+databases:
+  - name: meditracker-db
+    databaseName: meditracker
+    plan: free
+    ipAllowList: [] # only allow internal connections 
