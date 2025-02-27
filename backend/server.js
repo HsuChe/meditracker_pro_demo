@@ -84,6 +84,16 @@ app.get('/api/luts', lutController.getLUTs);
 app.get('/api/luts/:id', lutController.getLUTDetails);
 app.delete('/api/luts/:id', lutController.deleteLUT);
 
+// Add a root path handler for better user experience
+app.get('/', (req, res) => {
+  res.json({
+    message: 'MediTracker Pro API is running',
+    documentation: 'API endpoints start with /api/',
+    health: '/api/health',
+    version: '1.0.0'
+  });
+});
+
 // More detailed error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error details:', {
