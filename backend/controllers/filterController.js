@@ -130,65 +130,109 @@ const buildWhereClauses = (conditions) => {
                             referenceDate = `$${params.length}::timestamp`;
                         }
 
-                        // Build the appropriate interval calculation based on the unit
-                        let intervalCalc;
-                        switch (unit) {
-                            case 'year':
-                                intervalCalc = `ABS(EXTRACT(YEAR FROM AGE(${referenceDate}::timestamp, ${column}::timestamp)))`;
-                                break;
-                            case 'month':
-                                intervalCalc = `ABS(EXTRACT(MONTH FROM AGE(${referenceDate}::timestamp, ${column}::timestamp)) + 12 * EXTRACT(YEAR FROM AGE(${referenceDate}::timestamp, ${column}::timestamp)))`;
-                                break;
-                            case 'week':
-                                intervalCalc = `ABS(EXTRACT(EPOCH FROM (${referenceDate}::timestamp - ${column}::timestamp))/(86400*7))`;
-                                break;
-                            case 'day':
-                                intervalCalc = `ABS(EXTRACT(EPOCH FROM (${referenceDate}::timestamp - ${column}::timestamp))/86400)`;
-                                break;
-                            default:
-                                throw new Error(`Unsupported time unit: ${unit}`);
-                        }
-                        
-                        // Build the comparison clause
-                        let clause;
-                        switch (compareOp) {
-                            case 'greater_than':
-                                clause = `${intervalCalc} > ${compareValue}`;
-                                break;
-                            case 'less_than':
-                                clause = `${intervalCalc} < ${compareValue}`;
-                                break;
-                            case 'equals':
-                                // For exact matches, we'll use a small range to account for fractional differences
-                                if (unit === 'week' || unit === 'day') {
-                                    clause = `${intervalCalc} >= ${compareValue} AND ${intervalCalc} < ${compareValue + 1}`;
+                        try {
+                            // Build the appropriate interval calculation based on the unit
+                            let intervalCalc;
+                            switch (unit) {
+                                case 'year':
+                                    intervalCalc = `ABS(EXTRACT(YEAR FROM AGE(${referenceDate}::timestamp, ${column}::timestamp)))`;
+                                    break;
+                                case 'month':
+                                    intervalCalc = `ABS(EXTRACT(MONTH FROM AGE(${referenceDate}::timestamp, ${column}::timestamp)) + 12 * EXTRACT(YEAR FROM AGE(${referenceDate}::timestamp, ${column}::timestamp)))`;
+                                    break;
+                                case 'week':
+                                    intervalCalc = `ABS(EXTRACT(EPOCH FROM (${referenceDate}::timestamp - ${column}::timestamp))/(86400*7))`;
+                                    break;
+                                case 'day':
+                                    intervalCalc = `ABS(EXTRACT(EPOCH FROM (${referenceDate}::timestamp - ${column}::timestamp))/86400)`;
+                                    break;
+                                default:
+                                    throw new Error(`Unsupported time unit: ${unit}`);
+                            }
+                            
+                            // Build the comparison clause
+                            let clause;
+                            switch (compareOp) {
+                                case 'greater_than':
+                                    clause = `${intervalCalc} > ${compareValue}`;
+                                    break;
+                                case 'less_than':
+                                    clause = `${intervalCalc} < ${compareValue}`;
+                                    break;
+                                case 'equals':
+                                    // For exact matches, we'll use a small range to account for fractional differences
+                                    if (unit === 'week' || unit === 'day') {
+                                        clause = `${intervalCalc} >= ${compareValue} AND ${intervalCalc} < ${compareValue + 1}`;
+                                    } else {
+                                        clause = `${intervalCalc} = ${compareValue}`;
+                                    }
+                                    break;
+                                default:
+                                    clause = 'TRUE';
+                            }
+                            
+                            // Add debug logging
+                            console.log('Debug Query:', `
+                                SELECT 
+                                    ${column} as check_column, 
+                                    ${referenceDate} as reference_date,
+                                    ${intervalCalc} as time_diff,
+                                    CASE 
+                                        WHEN ${intervalCalc} < ${compareValue} THEN 'YES'
+                                        ELSE 'NO'
+                                    END as meets_criteria
+                                FROM ${CLAIMS_TABLE}
+                                WHERE ${column} IS NOT NULL 
+                                AND ${referenceDate} IS NOT NULL
+                                LIMIT 5;
+                            `);
+                            
+                            console.log('Generated SQL clause:', clause);
+                            console.log('Parameters:', params);
+                            clauses.push(clause);
+                        } catch (error) {
+                            console.error('Error processing between_date operator:', error);
+                            console.error('Falling back to simpler date comparison');
+                            
+                            // Fallback to a simpler date comparison
+                            if (compareOp === 'greater_than') {
+                                // For "greater than X months/years/etc", use a simple date comparison
+                                // Calculate a date in the past based on the unit and value
+                                let fallbackClause;
+                                if (unit === 'year') {
+                                    fallbackClause = `${column}::date < (${referenceDate}::date - INTERVAL '${compareValue} years')`;
+                                } else if (unit === 'month') {
+                                    fallbackClause = `${column}::date < (${referenceDate}::date - INTERVAL '${compareValue} months')`;
+                                } else if (unit === 'week') {
+                                    fallbackClause = `${column}::date < (${referenceDate}::date - INTERVAL '${compareValue * 7} days')`;
+                                } else if (unit === 'day') {
+                                    fallbackClause = `${column}::date < (${referenceDate}::date - INTERVAL '${compareValue} days')`;
                                 } else {
-                                    clause = `${intervalCalc} = ${compareValue}`;
+                                    fallbackClause = 'TRUE';
                                 }
-                                break;
-                            default:
-                                clause = 'TRUE';
+                                console.log('Fallback clause:', fallbackClause);
+                                clauses.push(fallbackClause);
+                            } else if (compareOp === 'less_than') {
+                                // For "less than X months/years/etc"
+                                let fallbackClause;
+                                if (unit === 'year') {
+                                    fallbackClause = `${column}::date > (${referenceDate}::date - INTERVAL '${compareValue} years')`;
+                                } else if (unit === 'month') {
+                                    fallbackClause = `${column}::date > (${referenceDate}::date - INTERVAL '${compareValue} months')`;
+                                } else if (unit === 'week') {
+                                    fallbackClause = `${column}::date > (${referenceDate}::date - INTERVAL '${compareValue * 7} days')`;
+                                } else if (unit === 'day') {
+                                    fallbackClause = `${column}::date > (${referenceDate}::date - INTERVAL '${compareValue} days')`;
+                                } else {
+                                    fallbackClause = 'TRUE';
+                                }
+                                console.log('Fallback clause:', fallbackClause);
+                                clauses.push(fallbackClause);
+                            } else {
+                                // Default fallback
+                                clauses.push('TRUE');
+                            }
                         }
-
-                        // Add debug logging
-                        console.log('Debug Query:', `
-                            SELECT 
-                                ${column} as check_column, 
-                                ${referenceDate} as reference_date,
-                                ${intervalCalc} as time_diff,
-                                CASE 
-                                    WHEN ${intervalCalc} < ${compareValue} THEN 'YES'
-                                    ELSE 'NO'
-                                END as meets_criteria
-                            FROM ${CLAIMS_TABLE}
-                            WHERE ${column} IS NOT NULL 
-                            AND ${referenceDate} IS NOT NULL
-                            LIMIT 5;
-                        `);
-                        
-                        console.log('Generated SQL clause:', clause);
-                        console.log('Parameters:', params);
-                        clauses.push(clause);
 
                     } else {
                         console.log('Missing required parameters for between_date operator');

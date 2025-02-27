@@ -20,16 +20,23 @@ const getClaims = async (req, res) => {
 
         if (conditions) {
             // Use conditions from either POST or GET
+            console.log('Building filter query with conditions:', JSON.stringify(conditions));
             const { query: builtQuery, params: queryParams } = buildFilterQuery(conditions);
             baseQuery = builtQuery;
             params = queryParams;
+            console.log('Built query:', baseQuery);
+            console.log('Query params:', params);
         } else if (req.savedFilterQuery) {
             // Use saved filter query
+            console.log('Using saved filter query');
             baseQuery = req.savedFilterQuery.baseQuery;
             params = req.savedFilterQuery.params;
             isSavedFilter = true;
+            console.log('Saved filter query:', baseQuery);
+            console.log('Saved filter params:', params);
         } else {
             // Default query for initial load
+            console.log('Using default query for initial load');
             baseQuery = `
                 SELECT 
                     c.claim_id,
@@ -44,9 +51,12 @@ const getClaims = async (req, res) => {
         }
 
         // Use the optimized query builder
+        console.log('Building optimized combined query');
         const combinedQuery = buildOptimizedCombinedQuery(baseQuery, conditions, limit, offset);
+        console.log('Combined query:', combinedQuery);
 
         // Execute the query with parameters
+        console.log('Executing query with params:', params);
         const result = await client.query(combinedQuery, params);
 
         if (!result.rows || result.rows.length === 0) {
@@ -95,9 +105,21 @@ const getClaims = async (req, res) => {
 
     } catch (error) {
         console.error('Error in getClaims:', error);
+        console.error('Error stack:', error.stack);
+        console.error('Error details:', error.detail || 'No additional details');
+        
+        // Check if it's a database-specific error
+        if (error.code) {
+            console.error('PostgreSQL error code:', error.code);
+            console.error('PostgreSQL error message:', error.message);
+            console.error('PostgreSQL error position:', error.position);
+            console.error('PostgreSQL error routine:', error.routine);
+        }
+        
         res.status(500).json({ 
             error: 'Internal server error', 
-            details: error.message
+            details: error.message,
+            code: error.code || 'unknown'
         });
     } finally {
         client.release();

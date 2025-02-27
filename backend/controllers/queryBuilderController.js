@@ -16,7 +16,9 @@ const extractWhereConditions = (query) => {
 
 // Build optimized combined query
 const buildOptimizedCombinedQuery = (baseQuery, conditions, limit, offset) => {
+    console.log('Building optimized combined query with conditions:', JSON.stringify(conditions));
     const whereConditions = extractWhereConditions(baseQuery);
+    console.log('Extracted WHERE conditions:', whereConditions);
 
     const optimizedQuery = `
         WITH base_stats AS (
@@ -50,6 +52,7 @@ const buildOptimizedCombinedQuery = (baseQuery, conditions, limit, offset) => {
             ) as claims
     `;
 
+    console.log('Generated optimized query:', optimizedQuery);
     return optimizedQuery;
 };
 
@@ -65,7 +68,10 @@ const buildWhereClauses = (conditions) => {
     conditions.forEach(condition => {
         const { column, operator, value, secondValue } = condition;
         
+        console.log(`Processing condition: column=${column}, operator=${operator}, value=${JSON.stringify(value)}, secondValue=${JSON.stringify(secondValue)}`);
+        
         if (value === null && !['is_null', 'is_not_null', 'between', 'between_date'].includes(operator)) {
+            console.log('Skipping condition with null value');
             return;
         }
 
@@ -193,6 +199,29 @@ const buildWhereClauses = (conditions) => {
                 clauses.push(`${column} IS NULL`);
             } else {
                 clauses.push(`${column} IS NOT NULL`);
+            }
+        }
+
+        // Add special logging for between_date operator
+        if (operator === 'between_date') {
+            console.log('\n=== DETAILED between_date OPERATOR DEBUG ===');
+            console.log('Column:', column);
+            console.log('Value:', value);
+            console.log('Second Value:', secondValue);
+            
+            if (value && secondValue?.unit && secondValue?.value !== undefined) {
+                const { operator: compareOp, value: compareValue, unit } = secondValue;
+                
+                console.log('Compare Operator:', compareOp);
+                console.log('Compare Value:', compareValue);
+                console.log('Time Unit:', unit);
+                
+                // Check if the database supports the required functions
+                console.log('Required PostgreSQL functions:');
+                console.log('- EXTRACT');
+                console.log('- AGE');
+                console.log('- ABS');
+                console.log('- COALESCE');
             }
         }
     });
