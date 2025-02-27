@@ -289,14 +289,19 @@ const createIngestedData = async (req, res) => {
       parent_ingestion_id
     } = req.body;
 
+    console.log(`Starting ingestion process for batch ${batch_number}/${total_batches} with ${data.length} records`);
+
     await client.query('BEGIN');
 
     // Get column constraints
+    console.log('Fetching column constraints...');
     const columnConstraints = await getColumnConstraints(client, 'claims_dummy');
+    console.log(`Retrieved constraints for ${Object.keys(columnConstraints).length} columns`);
 
     // If this is the first batch (batch_number === 1), create parent record
     let parentId = parent_ingestion_id;
     if (batch_number === 1) {
+      console.log('Creating parent ingestion record...');
       const parentResult = await client.query(
         `INSERT INTO ingested_data 
          (name, mapping_id, record_count, file_size_bytes, ingestion_date, 
@@ -307,9 +312,13 @@ const createIngestedData = async (req, res) => {
         [name, mapping_id, record_count * total_batches, file_size_bytes * total_batches]
       );
       parentId = parentResult.rows[0].ingested_data_id;
+      console.log(`Created parent ingestion record with ID: ${parentId}`);
+    } else {
+      console.log(`Using existing parent ingestion ID: ${parentId}`);
     }
 
     // Insert batch record
+    console.log('Creating batch ingestion record...');
     const ingestionResult = await client.query(
       `INSERT INTO ingested_data 
        (name, mapping_id, record_count, file_size_bytes, ingestion_date, 
@@ -324,6 +333,7 @@ const createIngestedData = async (req, res) => {
     );
 
     const ingestionId = ingestionResult.rows[0].ingested_data_id;
+    console.log(`Created batch ingestion record with ID: ${ingestionId}`);
 
     // Define numeric columns that need special handling
     const numericColumns = [
@@ -344,6 +354,11 @@ const createIngestedData = async (req, res) => {
     ];
 
     // Insert claims data
+    console.log(`Starting to insert ${data.length} claims records...`);
+    const startTime = Date.now();
+    let insertedCount = 0;
+    let lastLogTime = startTime;
+
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const columns = Object.keys(row);
@@ -383,9 +398,24 @@ const createIngestedData = async (req, res) => {
       
       console.log(`Inserting data with proper type handling for ${columns.length} columns`);
       await client.query(query, [...typedValues, ingestionId]);
+      
+      insertedCount++;
+      
+      // Log progress every 100 records or 5 seconds
+      const currentTime = Date.now();
+      if (insertedCount % 100 === 0 || currentTime - lastLogTime > 5000) {
+        const elapsedSeconds = (currentTime - startTime) / 1000;
+        const recordsPerSecond = insertedCount / elapsedSeconds;
+        console.log(`Progress: ${insertedCount}/${data.length} records inserted (${Math.round(insertedCount/data.length*100)}%) - ${recordsPerSecond.toFixed(2)} records/sec`);
+        lastLogTime = currentTime;
+      }
     }
 
+    const totalElapsedSeconds = (Date.now() - startTime) / 1000;
+    console.log(`Completed inserting ${insertedCount} records in ${totalElapsedSeconds.toFixed(2)} seconds (${(insertedCount/totalElapsedSeconds).toFixed(2)} records/sec)`);
+
     // Update status if this is the last batch
+    console.log('Updating ingestion status...');
     if (batch_number === total_batches) {
       await client.query(
         `UPDATE ingested_data 
@@ -393,6 +423,7 @@ const createIngestedData = async (req, res) => {
          WHERE ingested_data_id = $1 OR ingested_data_id = $2`,
         [parentId, ingestionId]
       );
+      console.log(`Updated status to 'completed' for parent (${parentId}) and batch (${ingestionId})`);
     } else {
       await client.query(
         `UPDATE ingested_data 
@@ -400,9 +431,12 @@ const createIngestedData = async (req, res) => {
          WHERE ingested_data_id = $1`,
         [ingestionId]
       );
+      console.log(`Updated status to 'completed' for batch (${ingestionId})`);
     }
 
+    console.log('Committing transaction...');
     await client.query('COMMIT');
+    console.log('Transaction committed successfully');
     
     res.status(201).json({
       ingestion_id: ingestionId,
@@ -410,10 +444,27 @@ const createIngestedData = async (req, res) => {
       records_processed: data.length,
       status: 'completed'
     });
+    console.log(`Ingestion process completed successfully for batch ${batch_number}/${total_batches}`);
 
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error creating ingested data:', error);
+    console.error('Error stack:', error.stack);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.hint,
+      position: error.position,
+      internalPosition: error.internalPosition,
+      internalQuery: error.internalQuery,
+      where: error.where,
+      schema: error.schema,
+      table: error.table,
+      column: error.column,
+      dataType: error.dataType,
+      constraint: error.constraint
+    });
     res.status(500).json({ 
       error: 'Internal server error',
       details: error.message,
