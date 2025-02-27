@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  env: {
+    NEXT_PUBLIC_BUILD_MODE: process.env.NODE_ENV === 'production' ? 'true' : 'false',
+  },
   // Enable SWC for compilation
   swcMinify: true,
   // Disable Babel for production/development
