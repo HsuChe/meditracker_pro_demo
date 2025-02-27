@@ -51,7 +51,8 @@ export function ClaimsSubmitter({
     totalBytes: 0,
     isVisible: false,
     currentBatch: 0,
-    totalBatches: 0
+    totalBatches: 0,
+    useSSE: false
   });
 
   const [mappingData, setMappingData] = useState<any>(null);
@@ -119,7 +120,7 @@ export function ClaimsSubmitter({
     const BATCH_SIZE = 5000;
     const totalBatches = Math.ceil(validRows.length / BATCH_SIZE);
     
-    // Initialize progress
+    // Initialize progress with SSE enabled
     setUploadProgress({
       currentRow: 0,
       totalRows: validRows.length,
@@ -128,88 +129,83 @@ export function ClaimsSubmitter({
       totalBytes: new Blob([csvData.map(row => row.join(',')).join('\n')]).size,
       isVisible: true,
       currentBatch: 0,
-      totalBatches
+      totalBatches,
+      useSSE: true // Enable SSE for real-time progress
     });
 
     try {
       let parentIngestionId = null;
 
-      // Process in batches
-      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-        const batchStart = batchIndex * BATCH_SIZE;
-        const batchEnd = Math.min(batchStart + BATCH_SIZE, validRows.length);
-        const batchRows = validRows.slice(batchStart, batchEnd);
-        
-        // Transform batch data
-        const transformedBatch = batchRows.map(row => {
-          const transformed: any = {};
-          mappingData.mappings.forEach((mapping: { csvColumn: string, dbColumn: string }) => {
-            const columnIndex = headers.indexOf(mapping.csvColumn);
-            if (columnIndex !== -1) {
-              transformed[mapping.dbColumn] = row[columnIndex];
-            }
-          });
-          return transformed;
+      // With SSE enabled, we only need to send the first batch
+      // The backend will handle the rest
+      const batchStart = 0;
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, validRows.length);
+      const batchRows = validRows.slice(batchStart, batchEnd);
+      
+      // Transform batch data
+      const transformedBatch = batchRows.map(row => {
+        const transformed: any = {};
+        mappingData.mappings.forEach((mapping: { csvColumn: string, dbColumn: string }) => {
+          const columnIndex = headers.indexOf(mapping.csvColumn);
+          if (columnIndex !== -1) {
+            transformed[mapping.dbColumn] = row[columnIndex];
+          }
         });
+        return transformed;
+      });
 
-        const batchPayload: BatchPayload = {
-          name: ingestionName,
-          data: transformedBatch,
-          mapping_id: mappingId,
-          record_count: transformedBatch.length,
-          file_size_bytes: transformedBatch.length > 0 ? new Blob([JSON.stringify(transformedBatch)]).size : 0,
-          batch_number: batchIndex,
-          total_batches: totalBatches,
-          parent_ingestion_id: parentIngestionId
-        };
+      const batchPayload: BatchPayload = {
+        name: ingestionName,
+        data: transformedBatch,
+        mapping_id: mappingId,
+        record_count: transformedBatch.length,
+        file_size_bytes: transformedBatch.length > 0 ? new Blob([JSON.stringify(transformedBatch)]).size : 0,
+        batch_number: 1,
+        total_batches: totalBatches,
+        parent_ingestion_id: parentIngestionId
+      };
+      
+      // Upload batch with SSE enabled
+      const response = await fetch(`${getApiUrl()}/api/ingested-data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream'
+        },
+        body: JSON.stringify(batchPayload),
+      });
 
-        // Upload batch
-        const response = await fetch(`${getApiUrl()}/api/ingested-data`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(batchPayload),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to submit batch ${batchIndex + 1}`);
-        }
-
-        const result = await response.json();
-        
-        // Store parent ID from first batch
-        if (batchIndex === 0) {
-          parentIngestionId = result.parent_ingestion_id;
-        }
-
-        // Update progress
-        const processedRows = (batchIndex + 1) * BATCH_SIZE;
-        setUploadProgress(prev => ({
-          ...prev,
-          currentRow: Math.min(processedRows, validRows.length),
-          uploadedBytes: Math.floor((processedRows / validRows.length) * prev.totalBytes),
-          currentBatch: batchIndex + 1
-        }));
+      if (!response.ok) {
+        throw new Error(`Failed to submit batch`);
       }
 
-      onSuccess();
-
-      // Wait before hiding progress
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setUploadProgress(prev => ({ 
-        ...prev, 
-        isVisible: false,
-        currentRow: 0,
-        uploadedBytes: 0
-      }));
+      // The SSE connection will handle progress updates
+      // We don't need to do anything else here
 
     } catch (error) {
       console.error('Error submitting claims:', error);
       onError(error instanceof Error ? error.message : 'Unknown error occurred');
-      setUploadProgress(prev => ({ ...prev, isVisible: false }));
+      setUploadProgress(prev => ({ ...prev, isVisible: false, useSSE: false }));
     }
   }, [csvData, mappingId, ingestionName, onError, onSuccess, mappingData]);
+
+  const handleSSEComplete = (data: any) => {
+    onSuccess();
+    setUploadProgress(prev => ({ 
+      ...prev, 
+      isVisible: false,
+      useSSE: false
+    }));
+  };
+
+  const handleSSEError = (error: string) => {
+    onError(error);
+    setUploadProgress(prev => ({ 
+      ...prev, 
+      isVisible: false,
+      useSSE: false
+    }));
+  };
 
   const handleFileUpload = (file: File) => {
     parse<string[]>(file, {
@@ -234,7 +230,13 @@ export function ClaimsSubmitter({
           className="mt-1"
         />
       </div>
-      <UploadProgress {...uploadProgress} />
+      
+      <UploadProgress 
+        {...uploadProgress} 
+        onSSEComplete={handleSSEComplete}
+        onSSEError={handleSSEError}
+      />
+      
       <Button 
         onClick={handleSubmitClaims}
         disabled={uploadProgress.isVisible}
