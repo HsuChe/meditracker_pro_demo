@@ -13,6 +13,7 @@ const mappingRoutes = require('./routes/mappingRoutes');
 const dbColumnsRoutes = require('./routes/dbColumnsRoutes');
 const lutController = require('./controllers/lutController');
 const filterController = require('./controllers/filterController');
+const pool = require('./config/db.config');
 
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
@@ -53,6 +54,8 @@ const corsOptions = {
     ? [
         'https://meditracker-pro-demo.onrender.com', 
         'https://meditracker-pro.onrender.com',
+        'https://www.accuratiohealth.com',
+        'https://accuratiohealth.com',
         process.env.FRONTEND_URL
       ].filter(Boolean)
     : ['http://localhost:3000', 'http://127.0.0.1:3000'],
@@ -94,6 +97,47 @@ app.get('/', (req, res) => {
   });
 });
 
+// Add a test endpoint to verify the server is running
+app.get('/api/health', async (req, res) => {
+  try {
+    // Test database connection
+    const client = await pool.connect();
+    const dbResult = await client.query('SELECT NOW() as time');
+    client.release();
+    
+    res.json({ 
+      status: 'ok',
+      environment: process.env.NODE_ENV,
+      timestamp: new Date().toISOString(),
+      database: {
+        connected: true,
+        time: dbResult.rows[0].time,
+        host: process.env.POSTGRES_HOST,
+        database: process.env.POSTGRES_DATABASE
+      }
+    });
+  } catch (error) {
+    console.error('Health check database error:', error);
+    res.status(500).json({
+      status: 'error',
+      environment: process.env.NODE_ENV,
+      timestamp: new Date().toISOString(),
+      database: {
+        connected: false,
+        error: error.message
+      }
+    });
+  }
+});
+
+// Handle 404 errors for undefined routes
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Not Found',
+    message: `Cannot ${req.method} ${req.path}`
+  });
+});
+
 // More detailed error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error details:', {
@@ -123,23 +167,6 @@ app.use((err, req, res, next) => {
     error: 'Internal Server Error',
     message: err.message,
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Handle 404 errors for undefined routes
-app.use((req, res) => {
-  res.status(404).json({ 
-    error: 'Not Found',
-    message: `Cannot ${req.method} ${req.path}`
-  });
-});
-
-// Add a test endpoint to verify the server is running
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok',
-    environment: process.env.NODE_ENV,
     timestamp: new Date().toISOString()
   });
 });
