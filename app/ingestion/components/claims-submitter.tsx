@@ -1,248 +1,216 @@
 "use client"
 
-import { useCallback, useState, useEffect } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useToast } from "@/components/ui/use-toast"
 import { UploadProgress } from "./upload-progress"
-import { parse } from 'papaparse'
 import { currentConfig } from '@/app/config'
 
 const getApiUrl = () => currentConfig.apiUrl;
 
-interface ClaimsSubmitterProps {
-  csvData: any[];
-  mappingId: number | null;
-  onSuccess?: () => void;
-  onError?: (error: string) => void;
-}
-
-interface IngestionState {
-  id: string;
-  processedRows: number;
-  failedRows: Array<{ row: number; error: string }>;
-  status: 'in_progress' | 'failed' | 'completed';
-}
-
-interface BatchPayload {
-  name: string;
-  data: any[];
-  mapping_id: number;
-  record_count: number;
-  file_size_bytes: number;
-  batch_number: number;
-  total_batches: number;
-  parent_ingestion_id: number | null;
-}
-
-export function ClaimsSubmitter({ 
-  csvData, 
-  mappingId, 
-  onSuccess = () => {},
-  onError = () => {}
-}: ClaimsSubmitterProps) {
-  const [savedMappings, setSavedMappings] = useState<Array<{name: string, mappings: any}>>([]);
-  const [ingestionName, setIngestionName] = useState("");
+export function ClaimsSubmitter() {
+  const [file, setFile] = useState<File | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState({
     currentRow: 0,
     totalRows: 0,
     startTime: 0,
     uploadedBytes: 0,
     totalBytes: 0,
-    isVisible: false,
     currentBatch: 0,
-    totalBatches: 0,
-    useSSE: false
-  });
+    totalBatches: 1,
+  })
+  const [showProgress, setShowProgress] = useState(false)
+  const [useSSE, setUseSSE] = useState(false)
+  const { toast } = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [mappingData, setMappingData] = useState<any>(null);
-  useEffect(() => {
-    const fetchMapping = async () => {
-      if (!mappingId) return;
-      try {
-        const response = await fetch(`${getApiUrl()}/api/mappings/${mappingId}`);
-        if (response.ok) {
-          const data = await response.json();
-          setMappingData(data);
-        }
-      } catch (error) {
-        console.error('Error fetching mapping:', error);
-      }
-    };
-    fetchMapping();
-  }, [mappingId]);
-
-  useEffect(() => {
-    // Fetch saved mappings when component mounts
-    const fetchSavedMappings = async () => {
-      try {
-        const response = await fetch(`${getApiUrl()}/api/mappings`);
-        if (response.ok) {
-          const data = await response.json();
-          setSavedMappings(data);
-        }
-      } catch (error) {
-        console.error('Error fetching saved mappings:', error);
-      }
-    };
-
-    fetchSavedMappings();
-  }, []);
-
-  const handleSubmitClaims = useCallback(async () => {
-    if (csvData.length < 2) {
-      onError("No data to submit");
-      return;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const selectedFile = e.target.files[0]
+      setFile(selectedFile)
+      
+      // Reset progress
+      setUploadProgress({
+        currentRow: 0,
+        totalRows: 0,
+        startTime: 0,
+        uploadedBytes: 0,
+        totalBytes: selectedFile.size,
+        currentBatch: 0,
+        totalBatches: 1,
+      })
+      
+      setShowProgress(false)
     }
-    if (!ingestionName.trim()) {
-      onError("Please enter a name for this ingestion");
-      return;
-    }
-    if (ingestionName.trim().length < 3) {
-      onError("Ingestion name must be at least 3 characters");
-      return;
-    }
-    if (!mappingId || typeof mappingId !== 'number') {
-      onError("Please select a mapping configuration before submitting");
-      return;
-    }
-    if (!mappingData) {
-      onError("Mapping data not loaded");
-      return;
-    }
+  }
 
-    const headers = csvData[0];
-    const startTime = Date.now();
-    const validRows = csvData.slice(1).filter(row => 
-      row.length > 1 && row.some((cell: string) => cell && cell.trim() !== '')
-    );
-
-    const BATCH_SIZE = 5000;
-    const totalBatches = Math.ceil(validRows.length / BATCH_SIZE);
-    
-    // Initialize progress with SSE enabled
+  const resetForm = () => {
+    setFile(null)
+    setIsUploading(false)
+    setShowProgress(false)
+    setUseSSE(false)
     setUploadProgress({
       currentRow: 0,
-      totalRows: validRows.length,
-      startTime,
+      totalRows: 0,
+      startTime: 0,
       uploadedBytes: 0,
-      totalBytes: new Blob([csvData.map(row => row.join(',')).join('\n')]).size,
-      isVisible: true,
+      totalBytes: 0,
       currentBatch: 0,
-      totalBatches,
-      useSSE: true // Enable SSE for real-time progress
-    });
-
-    try {
-      let parentIngestionId = null;
-
-      // With SSE enabled, we only need to send the first batch
-      // The backend will handle the rest
-      const batchStart = 0;
-      const batchEnd = Math.min(batchStart + BATCH_SIZE, validRows.length);
-      const batchRows = validRows.slice(batchStart, batchEnd);
-      
-      // Transform batch data
-      const transformedBatch = batchRows.map(row => {
-        const transformed: any = {};
-        mappingData.mappings.forEach((mapping: { csvColumn: string, dbColumn: string }) => {
-          const columnIndex = headers.indexOf(mapping.csvColumn);
-          if (columnIndex !== -1) {
-            transformed[mapping.dbColumn] = row[columnIndex];
-          }
-        });
-        return transformed;
-      });
-
-      const batchPayload: BatchPayload = {
-        name: ingestionName,
-        data: transformedBatch,
-        mapping_id: mappingId,
-        record_count: transformedBatch.length,
-        file_size_bytes: transformedBatch.length > 0 ? new Blob([JSON.stringify(transformedBatch)]).size : 0,
-        batch_number: 1,
-        total_batches: totalBatches,
-        parent_ingestion_id: parentIngestionId
-      };
-      
-      // Upload batch with SSE enabled
-      const response = await fetch(`${getApiUrl()}/api/ingested-data`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream'
-        },
-        body: JSON.stringify(batchPayload),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to submit batch`);
-      }
-
-      // The SSE connection will handle progress updates
-      // We don't need to do anything else here
-
-    } catch (error) {
-      console.error('Error submitting claims:', error);
-      onError(error instanceof Error ? error.message : 'Unknown error occurred');
-      setUploadProgress(prev => ({ ...prev, isVisible: false, useSSE: false }));
+      totalBatches: 1,
+    })
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
     }
-  }, [csvData, mappingId, ingestionName, onError, onSuccess, mappingData]);
+  }
 
-  const handleSSEComplete = (data: any) => {
-    onSuccess();
-    setUploadProgress(prev => ({ 
-      ...prev, 
-      isVisible: false,
-      useSSE: false
-    }));
-  };
-
-  const handleSSEError = (error: string) => {
-    onError(error);
-    setUploadProgress(prev => ({ 
-      ...prev, 
-      isVisible: false,
-      useSSE: false
-    }));
-  };
-
-  const handleFileUpload = (file: File) => {
-    parse<string[]>(file, {
-      complete: (results) => {
-        console.log(results.data);
-      },
-      error: (error) => {
-        console.error('Error parsing CSV:', error);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!file) {
+      toast({
+        title: "No file selected",
+        description: "Please select a CSV file to upload",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    setIsUploading(true)
+    setShowProgress(true)
+    setUseSSE(true)
+    
+    // Set initial progress state
+    setUploadProgress(prev => ({
+      ...prev,
+      startTime: Date.now(),
+      totalRows: 0,  // Will be updated from server
+      currentRow: 0,
+      uploadedBytes: 0,
+      totalBytes: file.size,
+    }))
+    
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+      
+      // Start the upload
+      const response = await fetch(`${getApiUrl()}/api/ingested-data/upload`, {
+        method: "POST",
+        body: formData,
+        headers: {
+          // Add Accept header for SSE
+          'Accept': 'application/json',
+        },
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || "Failed to upload file")
       }
-    });
-  };
+      
+      const data = await response.json()
+      
+      // Update progress with total rows from response
+      setUploadProgress(prev => ({
+        ...prev,
+        totalRows: data.totalRows || prev.totalRows,
+      }))
+      
+      toast({
+        title: "Upload successful",
+        description: `${data.message || "File has been uploaded and processed successfully"}`,
+      })
+    } catch (error) {
+      console.error("Upload error:", error)
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "An unknown error occurred",
+        variant: "destructive",
+      })
+    } finally {
+      setIsUploading(false)
+    }
+  }
+  
+  const handleSSEComplete = (data: any) => {
+    toast({
+      title: "Processing complete",
+      description: `Successfully processed ${data.records_processed || 'all'} records`,
+    })
+    setIsUploading(false)
+  }
+  
+  const handleSSEError = (error: string) => {
+    toast({
+      title: "Processing error",
+      description: error,
+      variant: "destructive",
+    })
+    setIsUploading(false)
+  }
 
   return (
-    <div className="mt-4 space-y-4">
-      <div>
-        <Label htmlFor="ingestion-name">Ingestion Name</Label>
-        <Input
-          id="ingestion-name"
-          value={ingestionName}
-          onChange={(e) => setIngestionName(e.target.value)}
-          placeholder="Enter a name for this ingestion"
-          className="mt-1"
-        />
-      </div>
-      
-      <UploadProgress 
-        {...uploadProgress} 
-        onSSEComplete={handleSSEComplete}
-        onSSEError={handleSSEError}
-      />
-      
-      <Button 
-        onClick={handleSubmitClaims}
-        disabled={uploadProgress.isVisible}
-      >
-        Submit Claims
-      </Button>
-    </div>
-  );
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Upload Claims Data</CardTitle>
+        <CardDescription>
+          Upload a CSV file containing claims data to be processed and stored in the database.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit}>
+          <div className="grid w-full items-center gap-4">
+            <div className="flex flex-col space-y-1.5">
+              <Label htmlFor="file">Claims CSV File</Label>
+              <Input
+                ref={fileInputRef}
+                id="file"
+                type="file"
+                accept=".csv"
+                onChange={handleFileChange}
+                disabled={isUploading}
+              />
+            </div>
+          </div>
+          <div className="mt-6">
+            <UploadProgress
+              currentRow={uploadProgress.currentRow}
+              totalRows={uploadProgress.totalRows}
+              startTime={uploadProgress.startTime}
+              uploadedBytes={uploadProgress.uploadedBytes}
+              totalBytes={uploadProgress.totalBytes}
+              isVisible={showProgress}
+              currentBatch={uploadProgress.currentBatch}
+              totalBatches={uploadProgress.totalBatches}
+              useSSE={useSSE}
+              onSSEComplete={handleSSEComplete}
+              onSSEError={handleSSEError}
+            />
+          </div>
+          <div className="flex justify-between mt-6">
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={resetForm}
+              disabled={isUploading}
+            >
+              Reset
+            </Button>
+            <Button 
+              type="submit" 
+              disabled={!file || isUploading}
+            >
+              {isUploading ? "Processing..." : "Upload & Process"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  )
 } 

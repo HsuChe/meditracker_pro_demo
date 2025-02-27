@@ -43,21 +43,11 @@ interface UploadProgressProps {
   onSSEError?: (error: string) => void
 }
 
-interface SSEProgressState {
-  current: number
-  total: number
-  percent: number
-  recordsPerSecond: number
-  elapsedSeconds: number
-  status: string
-  logs: Array<{ timestamp: string; message: string }>
-}
-
 export function UploadProgress({ 
-  currentRow, 
+  currentRow: initialCurrentRow, 
   totalRows, 
-  startTime, 
-  uploadedBytes, 
+  startTime: initialStartTime, 
+  uploadedBytes: initialUploadedBytes, 
   totalBytes,
   isVisible,
   currentBatch = 0,
@@ -66,21 +56,23 @@ export function UploadProgress({
   onSSEComplete,
   onSSEError
 }: UploadProgressProps) {
-  const [sseProgress, setSSEProgress] = useState<SSEProgressState>({
-    current: 0,
-    total: 0,
-    percent: 0,
-    recordsPerSecond: 0,
-    elapsedSeconds: 0,
-    status: 'Connecting to server...',
-    logs: []
-  });
-  const [sseError, setSSEError] = useState<string | null>(null);
+  // State to track progress that can be updated from SSE
+  const [currentRow, setCurrentRow] = useState(initialCurrentRow);
+  const [startTime, setStartTime] = useState(initialStartTime);
+  const [uploadedBytes, setUploadedBytes] = useState(initialUploadedBytes);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Reference to the SSE connection
   const eventSourceRef = useRef<EventSource | null>(null);
   
   // Set up SSE connection if useSSE is true
   useEffect(() => {
     if (!useSSE || !isVisible) return;
+    
+    // Update the start time if it's not set
+    if (startTime === 0) {
+      setStartTime(Date.now());
+    }
     
     const connectSSE = () => {
       // Close any existing connection
@@ -94,7 +86,6 @@ export function UploadProgress({
       // Handle connection open
       eventSourceRef.current.onopen = () => {
         console.log('SSE connection established');
-        addLog('Connected to server for real-time updates');
       };
       
       // Handle regular messages
@@ -104,46 +95,23 @@ export function UploadProgress({
           
           // Handle progress updates
           if (data.type === 'progress') {
-            setSSEProgress(prev => ({
-              ...prev,
-              current: data.current,
-              total: data.total,
-              percent: data.percent,
-              recordsPerSecond: data.recordsPerSecond,
-              elapsedSeconds: data.elapsedSeconds,
-              status: `Processing records: ${data.current}/${data.total}`
-            }));
-          } 
-          // Handle regular status messages
-          else if (data.message) {
-            addLog(data.message);
-            setSSEProgress(prev => ({
-              ...prev,
-              status: data.message
-            }));
+            setCurrentRow(data.current);
+            // Estimate uploaded bytes based on progress percentage
+            const estimatedBytes = Math.floor((data.current / totalRows) * totalBytes);
+            setUploadedBytes(estimatedBytes);
           }
         } catch (err) {
           console.error('Error parsing SSE data:', err);
         }
       };
       
-      // Handle specific events
-      eventSourceRef.current.addEventListener('start', (event: MessageEvent) => {
-        const data = JSON.parse(event.data);
-        addLog('Ingestion process started');
-        setSSEProgress(prev => ({
-          ...prev,
-          status: data.message || 'Starting ingestion process'
-        }));
-      });
-      
+      // Handle complete event
       eventSourceRef.current.addEventListener('complete', (event: MessageEvent) => {
         const data = JSON.parse(event.data);
-        addLog(`Ingestion completed: ${data.records_processed} records processed`);
-        setSSEProgress(prev => ({
-          ...prev,
-          status: 'Ingestion completed successfully'
-        }));
+        
+        // Update to completed state
+        setCurrentRow(totalRows);
+        setUploadedBytes(totalBytes);
         
         // Call the onComplete callback if provided
         if (onSSEComplete) {
@@ -157,6 +125,7 @@ export function UploadProgress({
         }
       });
       
+      // Handle error event
       eventSourceRef.current.addEventListener('error', (event: MessageEvent) => {
         let errorData = { error: 'Unknown error occurred' };
         
@@ -167,8 +136,7 @@ export function UploadProgress({
         }
         
         const errorMessage = errorData.error || 'Error during ingestion process';
-        setSSEError(errorMessage);
-        addLog(`ERROR: ${errorMessage}`);
+        setError(errorMessage);
         
         // Call the onError callback if provided
         if (onSSEError) {
@@ -182,15 +150,9 @@ export function UploadProgress({
         }
       });
       
-      // Handle ping events to keep connection alive
-      eventSourceRef.current.addEventListener('ping', () => {
-        console.log('Ping received from server');
-      });
-      
       // Handle connection errors
       eventSourceRef.current.onerror = (err) => {
         console.error('SSE connection error:', err);
-        addLog('Connection error - attempting to reconnect...');
         
         // Close the connection and try to reconnect after a delay
         if (eventSourceRef.current) {
@@ -211,84 +173,20 @@ export function UploadProgress({
         eventSourceRef.current = null;
       }
     };
-  }, [useSSE, isVisible, onSSEComplete, onSSEError]);
+  }, [useSSE, isVisible, totalRows, totalBytes, startTime, onSSEComplete, onSSEError]);
   
-  // Helper function to add a log entry with timestamp
-  const addLog = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setSSEProgress(prev => ({
-      ...prev,
-      logs: [...prev.logs, { timestamp, message }]
-    }));
-  };
+  // Update local state when props change (for non-SSE mode)
+  useEffect(() => {
+    if (!useSSE) {
+      setCurrentRow(initialCurrentRow);
+      setStartTime(initialStartTime);
+      setUploadedBytes(initialUploadedBytes);
+    }
+  }, [initialCurrentRow, initialStartTime, initialUploadedBytes, useSSE]);
 
   if (!isVisible) return null;
 
-  // If using SSE, show SSE progress
-  if (useSSE) {
-    const progress = sseProgress.percent;
-    
-    return (
-      <div className="w-full space-y-2 p-4 border rounded-lg bg-background">
-        {sseError ? (
-          <div className="text-red-500 font-medium mb-2">
-            Error: {sseError}
-          </div>
-        ) : null}
-        
-        <div className="flex justify-between text-sm text-muted-foreground">
-          <span>{sseProgress.status}</span>
-          <span>{progress.toFixed(1)}%</span>
-        </div>
-        
-        <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-          <div 
-            className="bg-primary h-full transform origin-left"
-            style={{ 
-              transform: `scaleX(${progress / 100})`,
-              transition: 'transform 0.2s linear'
-            }}
-          />
-        </div>
-        
-        {sseProgress.total > 0 && (
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <p>Processing Speed: {Math.round(sseProgress.recordsPerSecond)} rows/sec</p>
-              <p>Records Processed: {sseProgress.current} / {sseProgress.total}</p>
-            </div>
-            <div>
-              <p>Time Elapsed: {formatTime(sseProgress.elapsedSeconds)}</p>
-              <p>
-                Estimated Remaining: {
-                  sseProgress.recordsPerSecond > 0 
-                    ? formatTime((sseProgress.total - sseProgress.current) / sseProgress.recordsPerSecond)
-                    : 'Calculating...'
-                }
-              </p>
-            </div>
-          </div>
-        )}
-        
-        {sseProgress.logs.length > 0 && (
-          <div className="mt-4">
-            <h4 className="text-sm font-medium mb-2">Activity Log</h4>
-            <div className="h-[150px] overflow-auto rounded-md border p-2 bg-muted/20 text-xs">
-              {sseProgress.logs.map((log, index) => (
-                <div key={index} className="py-1">
-                  <span className="text-muted-foreground">{log.timestamp}</span>
-                  {' - '}
-                  <span>{log.message}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Regular progress display (non-SSE)
+  // Calculate progress metrics
   const progress = (currentRow / totalRows) * 100;
   const elapsedTime = Date.now() - startTime;
   const rate = elapsedTime > 0 ? currentRow / (elapsedTime / 1000) : 0; // rows per second
@@ -299,6 +197,12 @@ export function UploadProgress({
 
   return (
     <div className="w-full space-y-2 p-4 border rounded-lg bg-background">
+      {error && (
+        <div className="text-red-500 font-medium mb-2">
+          Error: {error}
+        </div>
+      )}
+      
       <div className="flex justify-between text-sm text-muted-foreground">
         <span>
           Processing rows: {currentRow.toLocaleString()} / {totalRows.toLocaleString()}
@@ -327,4 +231,4 @@ export function UploadProgress({
       </div>
     </div>
   );
-} 
+}
