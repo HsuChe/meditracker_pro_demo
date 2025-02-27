@@ -136,13 +136,15 @@ app.get('/api/health', (req, res) => {
 
 // Start the server unless we're running unit tests
 if (!process.env.JEST_WORKER_ID) {
-    // Use PORT environment variable provided by Render
+    // IMPORTANT: For Render deployment, we MUST use the PORT environment variable they provide
     const PORT = process.env.PORT || process.env.BACKEND_PORT || 5001;
     const HOST = '0.0.0.0'; // Bind to all network interfaces
+    
     app.listen(PORT, HOST, () => {
         console.log(`Server running on http://${HOST}:${PORT}`);
         console.log('Environment:', process.env.NODE_ENV);
         console.log('Database URL:', process.env.DATABASE_URL?.replace(/:[^:@]*@/, ':****@'));
+        console.log('Using PORT:', PORT);
     });
 }
 
