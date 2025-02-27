@@ -262,42 +262,83 @@ const validateAndCleanFilter = async (client, filter) => {
       return filter;
     }
 
-    // Query to check which claim IDs still exist
-    const query = `
-      SELECT id 
-      FROM claims_dummy 
-      WHERE id = ANY($1::int[])
-    `;
-    
-    const result = await client.query(query, [filter.claims_ids]);
-    
-    // Get the set of existing IDs
-    const existingIds = new Set(result.rows.map(row => row.id));
-    
-    // Filter out non-existing IDs
-    const validClaimIds = filter.claims_ids.filter(id => existingIds.has(id));
-    
-    // If there are any invalid IDs, update the filter
-    if (validClaimIds.length !== filter.claims_ids.length) {
-      const updateQuery = `
-        UPDATE saved_filters 
-        SET claims_ids = $1::jsonb,
-            last_updated = CURRENT_TIMESTAMP
-        WHERE filter_id = $2
-        RETURNING *
+    // Check if claims_ids is empty
+    if (filter.claims_ids.length === 0) {
+      return filter;
+    }
+
+    console.log(`Validating filter ${filter.filter_id} with ${filter.claims_ids.length} claim IDs`);
+
+    try {
+      // First, check if the id column exists in claims_dummy
+      const checkColumnQuery = `
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'claims_dummy' AND column_name = 'id'
       `;
       
-      const updateResult = await client.query(updateQuery, [
-        JSON.stringify(validClaimIds),
-        filter.filter_id
-      ]);
+      const columnResult = await client.query(checkColumnQuery);
+      
+      // If id column doesn't exist, try using claim_id instead
+      let idColumn = 'id';
+      if (columnResult.rows.length === 0) {
+        console.log('id column not found in claims_dummy, using claim_id instead');
+        idColumn = 'claim_id';
+      }
 
-      return updateResult.rows[0];
+      // Query to check which claim IDs still exist
+      const query = `
+        SELECT ${idColumn} 
+        FROM claims_dummy 
+        WHERE ${idColumn} = ANY($1::text[])
+      `;
+      
+      // Convert all IDs to strings for consistency
+      const stringIds = filter.claims_ids.map(id => String(id));
+      
+      console.log(`Checking existence of ${stringIds.length} claim IDs using column ${idColumn}`);
+      const result = await client.query(query, [stringIds]);
+      
+      // Get the set of existing IDs
+      const existingIds = new Set(result.rows.map(row => row[idColumn]));
+      
+      // Filter out non-existing IDs
+      const validClaimIds = filter.claims_ids.filter(id => existingIds.has(String(id)));
+      
+      console.log(`Found ${validClaimIds.length} valid claim IDs out of ${filter.claims_ids.length}`);
+      
+      // If there are any invalid IDs, update the filter
+      if (validClaimIds.length !== filter.claims_ids.length) {
+        const updateQuery = `
+          UPDATE saved_filters 
+          SET claims_ids = $1::jsonb,
+              last_updated = CURRENT_TIMESTAMP
+          WHERE filter_id = $2
+          RETURNING *
+        `;
+        
+        const updateResult = await client.query(updateQuery, [
+          JSON.stringify(validClaimIds),
+          filter.filter_id
+        ]);
+
+        return updateResult.rows[0];
+      }
+    } catch (error) {
+      console.error('Error validating claim IDs:', error);
+      console.error('Error details:', error.detail || 'No additional details');
+      
+      // If there's an error with validation, just return the original filter
+      // This prevents the entire getSavedFilters call from failing
+      console.log('Returning original filter due to validation error');
     }
 
     return filter;
   } catch (error) {
-    console.error('Error validating filter:', error);
+    console.error('Error in validateAndCleanFilter:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Return the original filter to prevent the entire operation from failing
     return filter;
   }
 };
@@ -306,25 +347,42 @@ const validateAndCleanFilter = async (client, filter) => {
 const getSavedFilters = async (req, res) => {
     const client = await pool.connect();
     try {
+        console.log('Fetching saved filters');
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const offset = (page - 1) * limit;
 
         // Get total count
+        console.log('Getting total count of saved filters');
         const countResult = await client.query('SELECT COUNT(*) FROM saved_filters');
         const totalCount = parseInt(countResult.rows[0].count);
+        console.log(`Total saved filters: ${totalCount}`);
 
         // Get paginated filters
+        console.log(`Fetching filters for page ${page} with limit ${limit}`);
         const result = await client.query(
             'SELECT * FROM saved_filters ORDER BY last_updated DESC LIMIT $1 OFFSET $2',
             [limit, offset]
         );
+        console.log(`Retrieved ${result.rows.length} filters`);
 
         // Validate and clean up each filter
-        const validatedFilters = await Promise.all(
-            result.rows.map(filter => validateAndCleanFilter(client, filter))
-        );
+        console.log('Validating filters');
+        const validatedFilters = [];
+        
+        // Process each filter individually to prevent one bad filter from breaking everything
+        for (const filter of result.rows) {
+            try {
+                const validatedFilter = await validateAndCleanFilter(client, filter);
+                validatedFilters.push(validatedFilter);
+            } catch (filterError) {
+                console.error(`Error validating filter ${filter.filter_id}:`, filterError);
+                // Add the original filter without validation
+                validatedFilters.push(filter);
+            }
+        }
 
+        console.log('Sending response with validated filters');
         res.json({
             filters: validatedFilters,
             pagination: {
@@ -336,7 +394,22 @@ const getSavedFilters = async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching saved filters:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('Error stack:', error.stack);
+        console.error('Error details:', error.detail || 'No additional details');
+        
+        // Check if it's a database-specific error
+        if (error.code) {
+            console.error('PostgreSQL error code:', error.code);
+            console.error('PostgreSQL error message:', error.message);
+            console.error('PostgreSQL error position:', error.position);
+            console.error('PostgreSQL error routine:', error.routine);
+        }
+        
+        res.status(500).json({ 
+            error: 'Internal server error', 
+            details: error.message,
+            code: error.code || 'unknown'
+        });
     } finally {
         client.release();
     }
