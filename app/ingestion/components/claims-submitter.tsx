@@ -114,15 +114,15 @@ export function ClaimsSubmitter() {
     }))
     
     try {
-      // Check if the API endpoint exists
-      const apiUrl = `${getApiUrl()}/api/ingested-data/test-process`;
+      // Use the standard ingestion endpoint instead of test-process
+      const apiUrl = `${getApiUrl()}/api/ingested-data`;
       
       // Create form data with file and name
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', ingestionName);
       
-      // Simulate API call to the production backend
+      // Actual API call to the backend
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
@@ -209,7 +209,7 @@ export function ClaimsSubmitter() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="claims-file" className="font-medium">Claims File (CSV)</Label>
+              <Label htmlFor="claims-file" className="font-medium">Upload CSV File</Label>
               <FileInput
                 id="claims-file"
                 ref={fileInputRef}
