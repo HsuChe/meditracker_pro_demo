@@ -182,17 +182,38 @@ const handleProgressStream = (req, res) => {
   const { ingestion_id } = req.query;
   
   try {
+    // Always add CORS headers for SSE
+    res.setHeader('Access-Control-Allow-Origin', 'https://www.accuratiohealth.com');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Type, Transfer-Encoding');
+    
+    // Handle preflight
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+    
     // Set SSE headers
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*'
+      'Access-Control-Allow-Origin': 'https://www.accuratiohealth.com'
     });
     
     // Send an initial message
     const initialMessage = { type: 'connected', timestamp: Date.now() };
     res.write(`data: ${JSON.stringify(initialMessage)}\n\n`);
+    
+    // Default response for no ingestions
+    const noIngestionsMessage = JSON.stringify({ 
+      type: 'progress', 
+      status: 'no_active_ingestions',
+      timestamp: Date.now()
+    });
     
     // Find the latest ingestion if no specific ID requested
     let targetId = ingestion_id;
@@ -210,8 +231,13 @@ const handleProgressStream = (req, res) => {
         res.write(`data: ${JSON.stringify(progressData)}\n\n`);
       } else {
         // No active ingestions found
-        res.write(`data: ${JSON.stringify({ type: 'progress', status: 'no_active_ingestions' })}\n\n`);
-        res.end();
+        res.write(`data: ${noIngestionsMessage}\n\n`);
+        
+        // For testing, we'll end the connection after sending the initial response
+        // to prevent continuous polling when there's no data
+        setTimeout(() => {
+          res.end();
+        }, 100);
         return;
       }
     } else {
@@ -234,9 +260,9 @@ const handleProgressStream = (req, res) => {
         }
         
         if (!currentId) {
-          res.write(`data: ${JSON.stringify({ type: 'progress', status: 'no_active_ingestions' })}\n\n`);
+          res.write(`data: ${noIngestionsMessage}\n\n`);
           clearInterval(progressInterval);
-          res.end();
+          setTimeout(() => res.end(), 100);
           return;
         }
         
@@ -255,14 +281,16 @@ const handleProgressStream = (req, res) => {
               type: 'complete',
               id: currentId,
               result: progress.result || {},
-              message: 'Processing completed successfully'
+              message: 'Processing completed successfully',
+              timestamp: Date.now()
             };
             res.write(`data: ${JSON.stringify(completeData)}\n\n`);
           } else {
             const errorData = {
               type: 'error',
               id: currentId,
-              error: progress.errors || 'Unknown error occurred'
+              error: progress.errors || 'Unknown error occurred',
+              timestamp: Date.now()
             };
             res.write(`data: ${JSON.stringify(errorData)}\n\n`);
           }
@@ -274,7 +302,8 @@ const handleProgressStream = (req, res) => {
         console.error('Error in SSE progress stream:', error);
         const errorMsg = {
           type: 'error',
-          message: error.message,
+          message: error.message || 'An unknown error occurred',
+          stack: error.stack,
           timestamp: Date.now()
         };
         res.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
@@ -291,10 +320,23 @@ const handleProgressStream = (req, res) => {
   } catch (error) {
     // If we can't even start the SSE connection, respond with a regular error
     console.error('Failed to establish SSE connection:', error);
-    res.status(500).json({
-      error: 'Failed to establish SSE connection',
-      message: error.message
-    });
+    
+    // Try to send a regular error response
+    try {
+      // Add CORS headers even for error responses
+      res.setHeader('Access-Control-Allow-Origin', 'https://www.accuratiohealth.com');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      
+      res.status(500).json({
+        error: 'Failed to establish SSE connection',
+        message: error.message || 'An unknown error occurred',
+        stack: error.stack
+      });
+    } catch (responseError) {
+      console.error('Could not send error response:', responseError);
+      // Last resort - just end the response
+      res.end();
+    }
   }
 };
 

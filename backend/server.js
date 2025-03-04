@@ -66,6 +66,23 @@ app.use(cors({
 const appliedConfig = getCorsConfig();
 console.log('CORS configured with origins:', Array.isArray(appliedConfig.origin) ? appliedConfig.origin : 'all origins');
 
+// Add a more direct CORS middleware to handle all responses
+app.use((req, res, next) => {
+  // Always add CORS headers
+  res.header('Access-Control-Allow-Origin', 'https://www.accuratiohealth.com');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Expose-Headers', 'Content-Type, Transfer-Encoding, Accept-Ranges, Content-Range');
+  
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(204).send();
+  }
+  
+  next();
+});
+
 // Add a CORS preflight response for critical endpoints
 app.options('/api/ingested-data', cors(getCorsConfig()));
 app.options('/api/ingested-data/progress', cors(getCorsConfig()));
