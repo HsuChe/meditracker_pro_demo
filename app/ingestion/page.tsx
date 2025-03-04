@@ -280,17 +280,7 @@ export default function IngestionPage() {
                       onMappingSelect={setSelectedMappingId}
                     />
                   </div>
-                  <ClaimsSubmitter 
-                    csvData={csvData}
-                    mappingId={selectedMappingId}
-                    onSuccess={() => {
-                      alert('Claims submitted successfully');
-                      setRefreshTrigger(prev => prev + 1);
-                    }}
-                    onError={(error: string) => {
-                      alert(`Error: ${error}`);
-                    }}
-                  />
+                  <ClaimsSubmitter />
                 </>
               )}
             </CardContent>

@@ -1,7 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Environment variables for client-side access
   env: {
     NEXT_PUBLIC_BUILD_MODE: process.env.NODE_ENV === 'production' ? 'true' : 'false',
+  },
+  // Needed for CSS processing
+  webpack: (config) => {
+    return config;
   },
   // Enable SWC for compilation
   swcMinify: true,

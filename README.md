@@ -42,6 +42,53 @@ This application is configured for deployment on Render.com with a PostgreSQL da
 
 5. Click "Create Web Service"
 
+### Test Environment Setup
+
+The application supports a separate test environment using Render's branch deployments.
+
+#### Setting Up Test Environment on Render
+
+1. Create a `test` branch in your Git repository:
+   ```
+   git checkout -b test
+   git push -u origin test
+   ```
+
+2. In the Render dashboard, enable branch deployments for your service:
+   - Go to your service settings
+   - Enable **Branch Deployments**
+   - Add the `test` branch
+   
+3. Configure environment variables for the test branch:
+   - Add branch-specific environment variables
+   - Set `NODE_ENV=test`
+   - Use a separate test database
+
+#### Using the Test Environment Locally
+
+1. Create a `.env.test` file with the following content:
+   ```
+   # Test Environment Configuration
+   NODE_ENV=test
+   NEXT_PUBLIC_BACKEND_URL=https://test-meditracker-pro-demo.onrender.com
+   
+   # Add other test-specific variables here
+   ```
+
+2. To run the frontend with test configuration:
+   ```
+   # On Windows (PowerShell)
+   .\start-test.ps1
+   
+   # Or using npm
+   npm run dev:test
+   ```
+
+3. For a complete test environment setup (database migrations, seeding, etc.):
+   ```
+   npm run setup:test-env
+   ```
+
 ### Local Development
 
 #### Setup
@@ -66,6 +113,29 @@ The application uses different environment files based on the `NODE_ENV` setting
 - `.env.development` - For local development
 - `.env.test` - For running tests
 - `.env.production` - For production deployment
+- `.env.local` - For overriding any environment settings locally (highest priority)
+
+#### Testing with Production Backend
+
+To test your local frontend changes against the production backend:
+
+1. Create or modify `.env.local` with the following content:
+```
+# Override NODE_ENV for local development
+NODE_ENV=development
+
+# Use the production backend API
+NEXT_PUBLIC_BACKEND_URL=https://meditracker-pro-demo.onrender.com
+
+# Keep other settings from .env.production
+```
+
+2. Run the development server as normal:
+```
+npm run dev
+```
+
+This configuration allows you to develop and test frontend changes locally while still connecting to the production backend API.
 
 ### Database Migration
 
@@ -88,6 +158,15 @@ If you encounter CORS issues:
 
 1. Add your frontend URL to the CORS configuration in `server.js`
 2. Ensure your frontend is making requests to the correct backend URL
+
+### API Connection Problems
+
+If your frontend can't connect to the backend API:
+
+1. Visit the `/debug` page to test API connections
+2. Check the browser console for specific error messages
+3. Verify that your environment variables are correctly set
+4. Ensure the backend service is running and accessible
 
 ## License
 

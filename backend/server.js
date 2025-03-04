@@ -13,9 +13,12 @@ const mappingRoutes = require('./routes/mappingRoutes');
 const dbColumnsRoutes = require('./routes/dbColumnsRoutes');
 const lutController = require('./controllers/lutController');
 const filterController = require('./controllers/filterController');
+const pool = require('./config/db.config');
+const { getConfig: getCorsConfig } = require('./config/cors');
 
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
+const isTest = process.env.NODE_ENV === 'test';
 
 // Log environment configuration on startup
 console.log('Current environment:', process.env.NODE_ENV);
@@ -47,23 +50,9 @@ app.use(express.urlencoded({
   parameterLimit: 50000
 }));
 
-// Configure CORS based on environment
-const corsOptions = {
-  origin: isProduction 
-    ? [
-        'https://meditracker-pro-demo.onrender.com', 
-        'https://meditracker-pro.onrender.com',
-        process.env.FRONTEND_URL
-      ].filter(Boolean)
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  credentials: true,
-  maxAge: 86400,
-  allowedHeaders: ['Content-Type', 'Authorization']
-};
-
-app.use(cors(corsOptions));
-console.log('CORS configured with origins:', corsOptions.origin);
+// Use environment-specific CORS configuration
+app.use(cors(getCorsConfig()));
+console.log('CORS configured with origins:', getCorsConfig().origin);
 
 // Add request logging middleware
 app.use((req, res, next) => {
@@ -83,6 +72,57 @@ app.post('/api/luts', lutController.createLUT);
 app.get('/api/luts', lutController.getLUTs);
 app.get('/api/luts/:id', lutController.getLUTDetails);
 app.delete('/api/luts/:id', lutController.deleteLUT);
+
+// Add a root path handler for better user experience
+app.get('/', (req, res) => {
+  res.json({
+    message: 'MediTracker Pro API is running',
+    documentation: 'API endpoints start with /api/',
+    health: '/api/health',
+    version: '1.0.0'
+  });
+});
+
+// Add a test endpoint to verify the server is running
+app.get('/api/health', async (req, res) => {
+  try {
+    // Test database connection
+    const client = await pool.connect();
+    const dbResult = await client.query('SELECT NOW() as time');
+    client.release();
+    
+    res.json({ 
+      status: 'ok',
+      environment: process.env.NODE_ENV,
+      timestamp: new Date().toISOString(),
+      database: {
+        connected: true,
+        time: dbResult.rows[0].time,
+        host: process.env.POSTGRES_HOST,
+        database: process.env.POSTGRES_DATABASE
+      }
+    });
+  } catch (error) {
+    console.error('Health check database error:', error);
+    res.status(500).json({
+      status: 'error',
+      environment: process.env.NODE_ENV,
+      timestamp: new Date().toISOString(),
+      database: {
+        connected: false,
+        error: error.message
+      }
+    });
+  }
+});
+
+// Handle 404 errors for undefined routes
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Not Found',
+    message: `Cannot ${req.method} ${req.path}`
+  });
+});
 
 // More detailed error handling middleware
 app.use((err, req, res, next) => {
@@ -113,23 +153,6 @@ app.use((err, req, res, next) => {
     error: 'Internal Server Error',
     message: err.message,
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Handle 404 errors for undefined routes
-app.use((req, res) => {
-  res.status(404).json({ 
-    error: 'Not Found',
-    message: `Cannot ${req.method} ${req.path}`
-  });
-});
-
-// Add a test endpoint to verify the server is running
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok',
-    environment: process.env.NODE_ENV,
     timestamp: new Date().toISOString()
   });
 });

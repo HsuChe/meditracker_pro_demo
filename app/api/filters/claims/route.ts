@@ -18,7 +18,12 @@ export async function GET() {
   try {
     const response = await fetch(`${getApiUrl()}/api/filters/claims`, {
       // Add a timeout to prevent hanging during build
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(10000), // Extended timeout
+      credentials: 'include', // Include credentials if authentication is needed
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
     });
     
     if (!response.ok) {
