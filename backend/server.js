@@ -53,18 +53,17 @@ app.use(express.urlencoded({
 
 // Use environment-specific CORS configuration
 app.use(cors({
-  ...getCorsConfig(),
-  // Explicitly set headers for SSE and CORS
-  exposedHeaders: ['Content-Type', 'Transfer-Encoding', 'Accept-Ranges', 'Content-Range'],
+  origin: ['https://www.accuratiohealth.com'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control'],
+  exposedHeaders: ['Content-Type', 'Transfer-Encoding', 'Accept-Ranges', 'Content-Range'],
   preflightContinue: false,
   optionsSuccessStatus: 204
 }));
 
 // Log the applied CORS configuration
-const appliedConfig = getCorsConfig();
-console.log('CORS configured with origins:', Array.isArray(appliedConfig.origin) ? appliedConfig.origin : 'all origins');
+console.log('CORS configured with origins: https://www.accuratiohealth.com');
 
 // Add a more direct CORS middleware to handle all responses
 app.use((req, res, next) => {
