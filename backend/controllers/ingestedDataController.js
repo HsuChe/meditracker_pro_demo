@@ -282,15 +282,45 @@ const createIngestedData = async (req, res) => {
       mapping_id, 
       record_count, 
       file_size_bytes,
-      batch_number,
-      total_batches,
-      parent_ingestion_id
+      batch_number = 1,
+      total_batches = 1,
+      parent_ingestion_id = null
     } = req.body;
+    
+    // Add validation checks
+    if (!name) {
+      console.error('Missing name in createIngestedData request');
+      return res.status(400).json({ error: 'Name is required for ingestion' });
+    }
+    
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      console.error('Invalid or empty data array in createIngestedData request');
+      return res.status(400).json({ error: 'Valid data array is required for ingestion' });
+    }
+    
+    // Sanitize input values
+    const sanitizedData = data.map(row => {
+      // Convert all keys to lowercase for consistency
+      return Object.entries(row).reduce((acc, [key, value]) => {
+        acc[key.toLowerCase()] = value;
+        return acc;
+      }, {});
+    });
+    
+    // Log data size and sample for debugging
+    console.log(`Processing ingestion: ${name}, ${sanitizedData.length} rows, batch ${batch_number}/${total_batches}`);
+    console.log('Sample data row:', JSON.stringify(sanitizedData[0]).substring(0, 200) + '...');
 
     await client.query('BEGIN');
 
     // Get column constraints
     const columnConstraints = await getColumnConstraints(client, 'claims_dummy');
+    
+    // Check if we got the constraints
+    if (!columnConstraints || Object.keys(columnConstraints).length === 0) {
+      console.error('Failed to retrieve column constraints for claims_dummy table');
+      return res.status(500).json({ error: 'Database schema error' });
+    }
 
     // If this is the first batch (batch_number === 1), create parent record
     let parentId = parent_ingestion_id;
@@ -302,7 +332,7 @@ const createIngestedData = async (req, res) => {
          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 
                 'active', 'processing', 'claims')
          RETURNING ingested_data_id`,
-        [name, mapping_id, record_count * total_batches, file_size_bytes * total_batches]
+        [name, mapping_id, record_count || sanitizedData.length, file_size_bytes || 0]
       );
       parentId = parentResult.rows[0].ingested_data_id;
     }
@@ -317,29 +347,62 @@ const createIngestedData = async (req, res) => {
               'active', 'processing', 'claims',
               $5, $6, $7)
        RETURNING ingested_data_id`,
-      [name, mapping_id, record_count, file_size_bytes, 
+      [name, mapping_id, record_count || sanitizedData.length, file_size_bytes || 0, 
        batch_number, total_batches, parentId]
     );
 
     const ingestionId = ingestionResult.rows[0].ingested_data_id;
-
+    console.log(`Created ingestion record with ID: ${ingestionId}`);
+    
+    // Track successful inserts
+    let successCount = 0;
+    let errorCount = 0;
+    let errorSamples = [];
+    
     // Insert claims data
-    for (let i = 0; i < data.length; i++) {
-      const row = data[i];
-      const columns = Object.keys(row);
-      
-      const values = Object.entries(row).map(([column, value]) => {
-        const constraints = columnConstraints[column];
-        if (!constraints) return value; // Column not found in constraints
+    for (let i = 0; i < sanitizedData.length; i++) {
+      try {
+        const row = sanitizedData[i];
+        const columns = Object.keys(row);
         
-        return validateAndTransformValue(value, column, constraints);
-      });
-      
-      const query = `INSERT INTO claims_dummy 
-         (${columns.join(', ')}, ingestion_id)
-         VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}, $${columns.length + 1})`;
-      
-      await client.query(query, [...values, ingestionId]);
+        if (columns.length === 0) {
+          console.warn(`Skipping empty row at index ${i}`);
+          continue;
+        }
+        
+        const values = Object.entries(row).map(([column, value]) => {
+          const constraints = columnConstraints[column];
+          if (!constraints) {
+            console.warn(`Column "${column}" not found in constraints, using raw value`);
+            return value; // Column not found in constraints
+          }
+          
+          return validateAndTransformValue(value, column, constraints);
+        });
+        
+        const query = `INSERT INTO claims_dummy 
+           (${columns.join(', ')}, ingestion_id)
+           VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}, $${columns.length + 1})`;
+        
+        await client.query(query, [...values, ingestionId]);
+        successCount++;
+        
+        // Log progress periodically
+        if (successCount % 100 === 0) {
+          console.log(`Processed ${successCount}/${sanitizedData.length} rows for ingestion ${ingestionId}`);
+        }
+      } catch (rowError) {
+        errorCount++;
+        if (errorSamples.length < 3) {
+          errorSamples.push({
+            index: i,
+            error: rowError.message,
+            row: sanitizedData[i] ? JSON.stringify(sanitizedData[i]).substring(0, 100) + '...' : 'undefined'
+          });
+        }
+        console.error(`Error inserting row ${i}: ${rowError.message}`);
+        // Continue processing other rows
+      }
     }
 
     // Update status if this is the last batch
@@ -360,21 +423,27 @@ const createIngestedData = async (req, res) => {
     }
 
     await client.query('COMMIT');
+    console.log(`Successfully committed ingestion ${ingestionId} with ${successCount} records`);
     
     res.status(201).json({
       ingestion_id: ingestionId,
       parent_ingestion_id: parentId,
-      records_processed: data.length,
+      records_processed: successCount,
+      errors: errorCount,
+      error_samples: errorSamples.length > 0 ? errorSamples : undefined,
       status: 'completed'
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error creating ingested data:', error);
+    console.error('Error in createIngestedData:', error);
+    console.error('Stack trace:', error.stack);
+    
+    // Send a more helpful error response
     res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message,
-      code: error.code
+      error: 'Failed to process data',
+      message: error.message,
+      details: error.stack?.split('\n')[0] || 'Unknown error details'
     });
   } finally {
     client.release();
