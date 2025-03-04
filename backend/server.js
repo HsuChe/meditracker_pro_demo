@@ -11,6 +11,7 @@ const claimRoutes = require('./routes/claimRoutes');
 const ingestedDataRoutes = require('./routes/ingestedDataRoutes');
 const mappingRoutes = require('./routes/mappingRoutes');
 const dbColumnsRoutes = require('./routes/dbColumnsRoutes');
+const fileUploadRoutes = require('./routes/fileUploadRoutes');
 const lutController = require('./controllers/lutController');
 const filterController = require('./controllers/filterController');
 const pool = require('./config/db.config');
@@ -51,7 +52,11 @@ app.use(express.urlencoded({
 }));
 
 // Use environment-specific CORS configuration
-app.use(cors(getCorsConfig()));
+app.use(cors({
+  ...getCorsConfig(),
+  // Enable SSE for progress tracking
+  exposedHeaders: ['Content-Type', 'Transfer-Encoding'],
+}));
 console.log('CORS configured with origins:', getCorsConfig().origin);
 
 // Add request logging middleware
@@ -65,6 +70,7 @@ app.use('/api/db-columns', dbColumnsRoutes);
 app.use('/api/filters', filterRoutes);
 app.use('/api/claims', claimRoutes);
 app.use('/api/ingested-data', ingestedDataRoutes);
+app.use('/api/file-upload', fileUploadRoutes);
 app.use('/api/mappings', mappingRoutes);
 
 // LUT routes (kept separate from claims data)
