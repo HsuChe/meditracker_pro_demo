@@ -8,49 +8,20 @@ const {
     deleteIngestion,
     deleteIngestionByName,
     clearAllIngestions,
-    getDeletedRecords
+    getDeletedRecords,
+    getIngestedDataHistory
 } = require('../controllers/ingestedDataController');
+const { 
+    handleProgressStream,
+    handleFileUpload,
+    uploadMiddleware 
+} = require('../controllers/fileUploadController');
 
 // List routes first (no parameters)
 router.get('/', getIngestedData);
 router.post('/', createIngestedData);
 router.get('/deleted-records', getDeletedRecords);
 router.delete('/clear-all', clearAllIngestions);
-
-// SSE endpoint for progress tracking
-router.get('/progress', (req, res) => {
-    // Set headers for SSE
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    
-    // Send an initial message
-    res.write('data: {"type":"progress","current":0}\n\n');
-    
-    // Keep the connection alive with a ping every 15 seconds
-    const pingInterval = setInterval(() => {
-        res.write('data: {"type":"ping"}\n\n');
-    }, 15000);
-    
-    // Handle client disconnect
-    req.on('close', () => {
-        clearInterval(pingInterval);
-    });
-});
-
-// Test process endpoint
-router.get('/test-process', (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
-    res.json({ 
-        success: true, 
-        message: 'Test process endpoint is working correctly',
-        timestamp: new Date().toISOString() 
-    });
-});
 
 // Parameter routes after
 router.get('/:id', getIngestedDataById);
@@ -59,5 +30,14 @@ router.delete('/:id', deleteIngestion);
 
 // Name-based deletion route
 router.delete('/name/:name', deleteIngestionByName);
+
+// Add progress endpoint for Server-Sent Events (SSE)
+router.get('/progress', handleProgressStream);
+
+// File upload endpoint (adding here to match existing frontend expectations)
+router.post('/upload', uploadMiddleware, handleFileUpload);
+
+// Get history of processing results
+router.get('/history', getIngestedDataHistory);
 
 module.exports = router; 
