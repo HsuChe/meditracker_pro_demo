@@ -86,6 +86,11 @@ const processCSVBuffer = (buffer, ingestionId, options = {}) => {
  */
 const handleFileUpload = async (req, res) => {
   try {
+    console.log('File upload request received:', {
+      body: Object.keys(req.body),
+      file: req.file ? req.file.originalname : 'No file'
+    });
+    
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
@@ -107,59 +112,9 @@ const handleFileUpload = async (req, res) => {
     
     console.log(`Starting file upload process for ${fileName}, size: ${fileSize} bytes, ID: ${ingestionId}`);
     
-    // Process the CSV in the background
-    processCSVBuffer(file.buffer, ingestionId)
-      .then(async (data) => {
-        try {
-          // Create a mock request for createIngestedData
-          const ingestRequest = {
-            body: {
-              name: fileName,
-              data: data,
-              mapping_id: req.body.mapping_id || null, // This might be undefined
-              record_count: data.length,
-              file_size_bytes: fileSize,
-              batch_number: 1,
-              total_batches: 1,
-              parent_ingestion_id: null
-            }
-          };
-          
-          // Create a mock response to capture what createIngestedData returns
-          const ingestResponse = {
-            status: (code) => ({
-              json: (data) => {
-                monitoring.completeIngestion(ingestionId, {
-                  status: 'completed',
-                  result: data
-                });
-                console.log(`Ingestion completed for ${fileName}, processed ${data.records_processed || 'unknown'} records`);
-              }
-            })
-          };
-          
-          // Call the existing createIngestedData function
-          await createIngestedData(ingestRequest, ingestResponse);
-          
-        } catch (error) {
-          console.error('Error in data ingestion:', error);
-          monitoring.updateProgress(ingestionId, {
-            error: error.message,
-            status: 'error'
-          });
-        }
-      })
-      .catch((error) => {
-        console.error('CSV processing error:', error);
-        monitoring.updateProgress(ingestionId, {
-          error: error.message,
-          status: 'error'
-        });
-      });
-      
     // Immediately return a success response with the ingestion ID
     // This way the client can start monitoring progress right away
-    return res.status(201).json({
+    res.status(201).json({
       message: 'File upload started successfully',
       ingestion_id: ingestionId,
       fileName,
@@ -168,6 +123,49 @@ const handleFileUpload = async (req, res) => {
       status: 'processing'
     });
     
+    // Process the CSV in the background after response is sent
+    try {
+      const data = await processCSVBuffer(file.buffer, ingestionId);
+      console.log(`CSV processing complete, ${data.length} rows processed`);
+      
+      // Create a mock request for createIngestedData
+      const ingestRequest = {
+        body: {
+          name: fileName,
+          data: data,
+          mapping_id: req.body.mapping_id || null,
+          record_count: data.length,
+          file_size_bytes: fileSize,
+          batch_number: 1,
+          total_batches: 1,
+          parent_ingestion_id: null
+        }
+      };
+      
+      // Create a mock response to capture what createIngestedData returns
+      const ingestResponse = {
+        status: (code) => ({
+          json: (data) => {
+            monitoring.completeIngestion(ingestionId, {
+              status: 'completed',
+              result: data
+            });
+            console.log(`Ingestion completed for ${fileName}, processed ${data.records_processed || data.length || 'unknown'} records`);
+          }
+        })
+      };
+      
+      // Call the existing createIngestedData function
+      await createIngestedData(ingestRequest, ingestResponse);
+      
+    } catch (error) {
+      console.error('Error processing CSV or ingesting data:', error);
+      monitoring.updateProgress(ingestionId, {
+        error: error.message,
+        status: 'error'
+      });
+    }
+      
   } catch (error) {
     console.error('File upload error:', error);
     return res.status(500).json({ 
@@ -183,93 +181,121 @@ const handleFileUpload = async (req, res) => {
 const handleProgressStream = (req, res) => {
   const { ingestion_id } = req.query;
   
-  // Set SSE headers
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
-  });
-  
-  // Send an initial message
-  res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
-  
-  // Find the latest ingestion if no specific ID requested
-  if (!ingestion_id) {
-    const allIngestions = monitoring.getAllIngestions();
-    // Get the most recent active ingestion
-    const latestIngestion = allIngestions
-      .filter(ing => ing.status === 'processing')
-      .sort((a, b) => b.startTime - a.startTime)[0];
-      
-    if (latestIngestion) {
-      console.log(`No ingestion_id provided, using latest: ${latestIngestion.id}`);
-      const progressData = monitoring.getProgress(latestIngestion.id);
-      res.write(`data: ${JSON.stringify(progressData)}\n\n`);
-    } else {
-      // No active ingestions found
-      res.write(`data: ${JSON.stringify({ status: 'no_active_ingestions' })}\n\n`);
-      res.end();
-      return;
-    }
-  }
-  
-  const progressInterval = setInterval(() => {
-    try {
-      const targetId = ingestion_id || (monitoring.getAllIngestions()
+  try {
+    // Set SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    });
+    
+    // Send an initial message
+    const initialMessage = { type: 'connected', timestamp: Date.now() };
+    res.write(`data: ${JSON.stringify(initialMessage)}\n\n`);
+    
+    // Find the latest ingestion if no specific ID requested
+    let targetId = ingestion_id;
+    if (!targetId) {
+      const allIngestions = monitoring.getAllIngestions();
+      // Get the most recent active ingestion
+      const latestIngestion = allIngestions
         .filter(ing => ing.status === 'processing')
-        .sort((a, b) => b.startTime - a.startTime)[0]?.id);
-      
-      if (!targetId) {
-        res.write(`data: ${JSON.stringify({ status: 'no_active_ingestions' })}\n\n`);
-        clearInterval(progressInterval);
+        .sort((a, b) => b.startTime - a.startTime)[0];
+        
+      if (latestIngestion) {
+        console.log(`No ingestion_id provided, using latest: ${latestIngestion.id}`);
+        targetId = latestIngestion.id;
+        const progressData = monitoring.getProgress(latestIngestion.id);
+        res.write(`data: ${JSON.stringify(progressData)}\n\n`);
+      } else {
+        // No active ingestions found
+        res.write(`data: ${JSON.stringify({ type: 'progress', status: 'no_active_ingestions' })}\n\n`);
         res.end();
         return;
       }
-      
-      const progress = monitoring.getProgress(targetId);
-      
-      if (!progress) {
-        // Send a ping to keep the connection alive
-        res.write(`data: ${JSON.stringify({ type: 'ping', timestamp: Date.now() })}\n\n`);
-        return;
-      }
-      
-      // Format data in the way the frontend expects
-      const formattedProgress = {
-        type: 'progress',
-        current: progress.current,
-        total: progress.total || 0,
-        status: progress.status,
-        percentComplete: progress.percentComplete || 0
-      };
-      
-      // Send the progress update
-      res.write(`data: ${JSON.stringify(formattedProgress)}\n\n`);
-      
-      // If process is completed or errored, end the connection
-      if (progress.status === 'completed' || progress.status === 'error') {
-        clearInterval(progressInterval);
-        // Send a final event for completion/error
-        if (progress.status === 'completed') {
-          res.write(`event: complete\ndata: ${JSON.stringify(progress.result || {})}\n\n`);
-        } else {
-          res.write(`event: error\ndata: ${JSON.stringify({ error: progress.errors })}\n\n`);
-        }
-        res.end();
-      }
-    } catch (error) {
-      console.error('Error in SSE progress stream:', error);
-      res.write(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`);
-      clearInterval(progressInterval);
-      res.end();
+    } else {
+      // If we have a specific ID, send its progress immediately
+      const initialProgress = monitoring.getProgress(targetId);
+      res.write(`data: ${JSON.stringify(initialProgress)}\n\n`);
     }
-  }, 1000); // Send updates every second
-  
-  // Handle client disconnect
-  req.on('close', () => {
-    clearInterval(progressInterval);
-    console.log('Client disconnected from progress stream');
-  });
+    
+    const progressInterval = setInterval(() => {
+      try {
+        let currentId = targetId;
+        
+        // If no specific ID was requested, keep checking for the latest
+        if (!ingestion_id) {
+          const latestIngestion = monitoring.getAllIngestions()
+            .filter(ing => ing.status === 'processing')
+            .sort((a, b) => b.startTime - a.startTime)[0];
+          
+          currentId = latestIngestion?.id;
+        }
+        
+        if (!currentId) {
+          res.write(`data: ${JSON.stringify({ type: 'progress', status: 'no_active_ingestions' })}\n\n`);
+          clearInterval(progressInterval);
+          res.end();
+          return;
+        }
+        
+        const progress = monitoring.getProgress(currentId);
+        
+        // Send the progress update
+        res.write(`data: ${JSON.stringify(progress)}\n\n`);
+        
+        // If process is completed or errored, end the connection
+        if (progress.status === 'completed' || progress.status === 'error') {
+          clearInterval(progressInterval);
+          
+          // Send a final event for completion/error
+          if (progress.status === 'completed') {
+            const completeData = {
+              type: 'complete',
+              id: currentId,
+              result: progress.result || {},
+              message: 'Processing completed successfully'
+            };
+            res.write(`data: ${JSON.stringify(completeData)}\n\n`);
+          } else {
+            const errorData = {
+              type: 'error',
+              id: currentId,
+              error: progress.errors || 'Unknown error occurred'
+            };
+            res.write(`data: ${JSON.stringify(errorData)}\n\n`);
+          }
+          
+          // End the connection after sending final event
+          setTimeout(() => res.end(), 100);
+        }
+      } catch (error) {
+        console.error('Error in SSE progress stream:', error);
+        const errorMsg = {
+          type: 'error',
+          message: error.message,
+          timestamp: Date.now()
+        };
+        res.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+        clearInterval(progressInterval);
+        setTimeout(() => res.end(), 100);
+      }
+    }, 1000); // Send updates every second
+    
+    // Handle client disconnect
+    req.on('close', () => {
+      clearInterval(progressInterval);
+      console.log('Client disconnected from progress stream');
+    });
+  } catch (error) {
+    // If we can't even start the SSE connection, respond with a regular error
+    console.error('Failed to establish SSE connection:', error);
+    res.status(500).json({
+      error: 'Failed to establish SSE connection',
+      message: error.message
+    });
+  }
 };
 
 /**

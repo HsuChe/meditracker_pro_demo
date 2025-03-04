@@ -15,6 +15,7 @@ const monitoring = {
       totalRows: metadata.totalRows || -1,
       status: 'processing',
       fileName: metadata.fileName || 'unknown',
+      fileSize: metadata.fileSize || 0,
       memoryUsage: {
         heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
         rss: Math.round(process.memoryUsage().rss / 1024 / 1024)
@@ -79,14 +80,24 @@ const monitoring = {
    */
   getProgress(ingestionId) {
     const ingestion = this.activeIngestions.get(ingestionId);
-    if (!ingestion) return null;
+    if (!ingestion) {
+      console.warn(`Requested progress for unknown ingestion: ${ingestionId}`);
+      return { 
+        type: 'progress',
+        status: 'not_found',
+        error: `No active ingestion found with ID: ${ingestionId}`
+      };
+    }
     
     return {
+      type: 'progress',
       id: ingestionId,
       current: ingestion.rowsProcessed,
-      total: ingestion.totalRows,
+      total: ingestion.totalRows > 0 ? ingestion.totalRows : ingestion.rowsProcessed * 2, // Estimate if unknown
       status: ingestion.status,
-      percentComplete: ingestion.percentComplete || 0,
+      fileName: ingestion.fileName,
+      fileSize: ingestion.fileSize,
+      percentComplete: ingestion.percentComplete || Math.min(99, Math.round((ingestion.rowsProcessed / (ingestion.totalRows || 1000)) * 100)),
       elapsedTime: Date.now() - ingestion.startTime,
       memoryUsage: ingestion.memoryUsage,
       errors: ingestion.errors.length > 0 ? ingestion.errors : undefined
@@ -116,6 +127,9 @@ const monitoring = {
       ingestion.status = data.status || 'completed';
       ingestion.completedAt = Date.now();
       ingestion.result = data.result;
+      ingestion.percentComplete = 100;
+      
+      console.log(`Completed ingestion: ${ingestionId}`);
       
       // Keep completed ingestions in memory for a while so clients can get final status
       // Then automatically clean them up after 5 minutes

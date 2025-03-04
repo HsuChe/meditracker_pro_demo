@@ -54,10 +54,23 @@ app.use(express.urlencoded({
 // Use environment-specific CORS configuration
 app.use(cors({
   ...getCorsConfig(),
-  // Enable SSE for progress tracking
-  exposedHeaders: ['Content-Type', 'Transfer-Encoding'],
+  // Explicitly set headers for SSE and CORS
+  exposedHeaders: ['Content-Type', 'Transfer-Encoding', 'Accept-Ranges', 'Content-Range'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 }));
-console.log('CORS configured with origins:', getCorsConfig().origin);
+
+// Log the applied CORS configuration
+const appliedConfig = getCorsConfig();
+console.log('CORS configured with origins:', Array.isArray(appliedConfig.origin) ? appliedConfig.origin : 'all origins');
+
+// Add a CORS preflight response for critical endpoints
+app.options('/api/ingested-data', cors(getCorsConfig()));
+app.options('/api/ingested-data/progress', cors(getCorsConfig()));
+app.options('/api/file-upload/upload', cors(getCorsConfig()));
+app.options('/api/file-upload/progress', cors(getCorsConfig()));
 
 // Add request logging middleware
 app.use((req, res, next) => {
