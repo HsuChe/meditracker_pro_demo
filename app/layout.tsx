@@ -26,6 +26,7 @@ export default function RootLayout({
   return (
     <ClerkProvider 
       publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      proxyUrl="https://clerk.clerk.dev"
       appearance={{
         elements: {
           formButtonPrimary: "bg-primary text-primary-foreground hover:bg-primary/90",
