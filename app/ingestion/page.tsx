@@ -57,54 +57,58 @@ interface IngestionHistory {
   recordsCount: number
 }
 
+interface FileMetadata {
+  name: string;
+  size: number;
+  rows: number;
+  columns: number;
+}
+
 export default function IngestionPage() {
   const [ingestions, setIngestions] = useState<Ingestion[]>([
     { id: 1, name: "Product List", type: "CSV", date: "2023-04-01" },
     { id: 2, name: "Price LUT", type: "LUT", date: "2023-04-02" },
-  ])
-  const [csvData, setCsvData] = useState<string[][]>([])
-  const [mappings, setMappings] = useState<Mapping[]>([])
-  const [lutName, setLutName] = useState<string>("")
-  const [lutData, setLutData] = useState<string>("")
-  const [lutCsvData, setLutCsvData] = useState<string[][]>([])
-  const [selectedMappingId, setSelectedMappingId] = useState<number | null>(null)
-  const [refreshTrigger, setRefreshTrigger] = useState(0)
-  const [fileMetadata, setFileMetadata] = useState<{
-    name: string;
-    size: number;
-    rows: number;
-    columns: number;
-  } | null>(null);
+  ]);
+  
+  const [dbColumns, setDbColumns] = useState<string[]>([
+    "claim_id", "patient_id", "date_of_birth", "gender", "provider_id", 
+    "facility_id", "diagnosis_code", "procedure_code", "admission_date", 
+    "discharge_date", "revenue_code", "modifiers", "claim_type", 
+    "total_charges", "allowed_amount"
+  ]);
+  
+  const [csvData, setCsvData] = useState<string[][]>([]);
+  const [lutCsvData, setLutCsvData] = useState<string[][]>([]);
+  const [lutData, setLutData] = useState("");
+  const [lutName, setLutName] = useState<string>("");
+  const [mappings, setMappings] = useState<Mapping[]>([]);
+  const [savedMappings, setSavedMappings] = useState<SavedMapping[]>([]);
+  const [selectedMapping, setSelectedMapping] = useState<SavedMapping | null>(null);
+  const [selectedMappingId, setSelectedMappingId] = useState<number | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [fileMetadata, setFileMetadata] = useState<FileMetadata | null>(null);
   const [activeTab, setActiveTab] = useState<'csv' | 'lut'>('csv');
+  
+  // Add state to store the uploaded File object
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
-  const dbColumns = [
-    "claim_id",
-    "patient_id",
-    "date_of_birth",
-    "gender",
-    "provider_id",
-    "facility_id",
-    "diagnosis_code",
-    "procedure_code",
-    "admission_date",
-    "discharge_date",
-    "revenue_code",
-    "modifiers",
-    "claim_type",
-    "total_charges",
-    "allowed_amount"
-  ]
-
+  // Format bytes to human readable format
   const formatBytes = (bytes: number) => {
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    if (bytes === 0) return '0 Byte';
+    if (bytes === 0) return '0 Bytes';
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
+    return Math.round(bytes / Math.pow(1024, i)) + ' ' + sizes[i];
   };
 
+  // Restore the file upload handler
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>, isLut = false) => {
     const file = event.target.files?.[0]
     if (file) {
+      // Save the actual File object
+      if (!isLut) {
+        setUploadedFile(file);
+      }
+      
       const reader = new FileReader()
       reader.onload = (e) => {
         const content = e.target?.result as string
@@ -137,7 +141,10 @@ export default function IngestionPage() {
       }
       reader.readAsText(file)
     } else {
-      setFileMetadata(null);
+      if (!isLut) {
+        setUploadedFile(null);
+        setFileMetadata(null);
+      }
     }
   }, [mappings])
 
@@ -269,8 +276,13 @@ export default function IngestionPage() {
                   </div>
                 )}
               </div>
-              {csvData.length > 0 && (
+              {/* Pass the file to the ClaimsSubmitter component but don't show its upload button */}
+              {uploadedFile && fileMetadata && (
                 <>
+                  <ClaimsSubmitter 
+                    file={uploadedFile} 
+                    ingestionName={fileMetadata.name.replace(/\.[^/.]+$/, "")} 
+                  />
                   <div className="space-y-2">
                     <MappingManager
                       csvColumns={csvData[0]}
@@ -280,7 +292,6 @@ export default function IngestionPage() {
                       onMappingSelect={setSelectedMappingId}
                     />
                   </div>
-                  <ClaimsSubmitter />
                 </>
               )}
             </CardContent>
@@ -357,4 +368,5 @@ export default function IngestionPage() {
     </div>
   )
 }
+
 

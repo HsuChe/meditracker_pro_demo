@@ -12,10 +12,29 @@ import { FileInput } from "@/components/ui/file-input"
 
 const getApiUrl = () => currentConfig.apiUrl;
 
-export function ClaimsSubmitter() {
-  const [file, setFile] = useState<File | null>(null)
+interface FileMetadata {
+  name: string;
+  size: number;
+  rows: number;
+  columns: number;
+}
+
+interface ClaimsSubmitterProps {
+  onFileMetadata?: (metadata: FileMetadata) => void;
+  file?: File | null;
+  ingestionName?: string;
+  onIngestionNameChange?: (name: string) => void;
+}
+
+export function ClaimsSubmitter({ 
+  onFileMetadata,
+  file,
+  ingestionName: propIngestionName = "",
+  onIngestionNameChange
+}: ClaimsSubmitterProps) {
+  const [internalFile, setInternalFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
-  const [ingestionName, setIngestionName] = useState("")
+  const [ingestionName, setIngestionName] = useState(propIngestionName)
   const [uploadProgress, setUploadProgress] = useState({
     currentRow: 0,
     totalRows: 0,
@@ -30,10 +49,24 @@ export function ClaimsSubmitter() {
   const { toast } = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  useEffect(() => {
+    if (file) setInternalFile(file);
+  }, [file]);
+
+  useEffect(() => {
+    setIngestionName(propIngestionName);
+  }, [propIngestionName]);
+
+  useEffect(() => {
+    if (onIngestionNameChange && ingestionName !== propIngestionName) {
+      onIngestionNameChange(ingestionName);
+    }
+  }, [ingestionName, propIngestionName, onIngestionNameChange]);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const selectedFile = e.target.files[0]
-      setFile(selectedFile)
+      setInternalFile(selectedFile)
       
       // Set default ingestion name based on file name if not set
       if (!ingestionName) {
@@ -53,11 +86,32 @@ export function ClaimsSubmitter() {
       })
       
       setShowProgress(false)
+      
+      // Notify parent component about file metadata if callback exists
+      if (onFileMetadata) {
+        // Parse the CSV to get metadata
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            const content = event.target.result.toString();
+            const lines = content.split('\n');
+            const headers = lines[0].split(',');
+            
+            onFileMetadata({
+              name: selectedFile.name,
+              size: selectedFile.size,
+              rows: lines.length - 1, // Subtract header row
+              columns: headers.length
+            });
+          }
+        };
+        reader.readAsText(selectedFile);
+      }
     }
   }
 
   const resetForm = () => {
-    setFile(null)
+    setInternalFile(null)
     setIsUploading(false)
     setShowProgress(false)
     setUseSSE(false)
@@ -81,6 +135,8 @@ export function ClaimsSubmitter() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
+    const currentFile = file || internalFile;
+    
     if (!ingestionName.trim()) {
       toast({
         title: "Ingestion name required",
@@ -90,7 +146,7 @@ export function ClaimsSubmitter() {
       return
     }
     
-    if (!file) {
+    if (!currentFile) {
       toast({
         title: "File required",
         description: "Please select a file to upload",
@@ -110,7 +166,7 @@ export function ClaimsSubmitter() {
       totalRows: 100,  // Simulated number of rows
       currentRow: 0,
       uploadedBytes: 0,
-      totalBytes: file.size,
+      totalBytes: currentFile.size,
     }))
     
     try {
@@ -119,7 +175,7 @@ export function ClaimsSubmitter() {
       
       // Create form data with file and name
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', currentFile);
       formData.append('name', ingestionName);
       
       // Actual API call to the backend
@@ -198,65 +254,63 @@ export function ClaimsSubmitter() {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="ingestion-name" className="font-medium">Ingestion Name</Label>
+              <Label htmlFor="ingestion-name">Ingestion Name</Label>
               <Input
                 id="ingestion-name"
                 placeholder="Enter a name for this ingestion"
                 value={ingestionName}
                 onChange={(e) => setIngestionName(e.target.value)}
-                disabled={isUploading}
-                className="w-full"
+                required
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="claims-file" className="font-medium">Upload CSV File</Label>
-              <FileInput
-                id="claims-file"
-                ref={fileInputRef}
-                accept=".csv"
-                onChange={handleFileChange}
-                disabled={isUploading}
-                className="w-full"
-              />
-              {file && (
-                <p className="text-sm text-muted-foreground mt-1">
-                  {file.name} ({formatBytes(file.size)})
-                </p>
-              )}
-            </div>
+            
+            {!file && (
+              <div className="space-y-2">
+                <Label htmlFor="claims-file" className="font-medium">Upload CSV File</Label>
+                <FileInput
+                  ref={fileInputRef}
+                  id="claims-file"
+                  accept=".csv"
+                  onChange={handleFileChange}
+                  required
+                />
+              </div>
+            )}
           </div>
           
-          <div className="mt-6">
+          {(file || internalFile) && (
+            <div className="p-4 bg-muted rounded-md text-sm space-y-2">
+              <p className="font-medium">Selected File</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-muted-foreground">Name:</span> {file?.name || internalFile?.name}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Size:</span> {formatBytes((file || internalFile)?.size || 0)}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {showProgress && (
             <UploadProgress
+              isVisible={showProgress}
               currentRow={uploadProgress.currentRow}
               totalRows={uploadProgress.totalRows}
               startTime={uploadProgress.startTime}
               uploadedBytes={uploadProgress.uploadedBytes}
               totalBytes={uploadProgress.totalBytes}
-              isVisible={showProgress}
-              currentBatch={uploadProgress.currentBatch}
-              totalBatches={uploadProgress.totalBatches}
               useSSE={useSSE}
               onSSEComplete={handleSSEComplete}
               onSSEError={handleSSEError}
             />
-          </div>
+          )}
           
-          <div className="flex justify-between mt-6 pt-4 border-t">
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={resetForm}
-              disabled={isUploading}
-              className="px-6"
-            >
+          <div className="flex justify-between">
+            <Button type="button" variant="outline" onClick={resetForm}>
               Reset
             </Button>
-            <Button 
-              type="submit" 
-              disabled={isUploading || !file || !ingestionName.trim()}
-              className="px-8 bg-primary hover:bg-primary/90"
-            >
+            <Button type="submit" disabled={isUploading || !ingestionName || !(file || internalFile)}>
               {isUploading ? "Processing..." : "Upload & Process"}
             </Button>
           </div>
@@ -264,4 +318,9 @@ export function ClaimsSubmitter() {
       </CardContent>
     </Card>
   )
-} 
+}
+
+// Add TypeScript interface for props
+ClaimsSubmitter.defaultProps = {
+  onFileMetadata: null
+}; 
