@@ -130,13 +130,20 @@ export default function IngestionPage() {
             rows: rows.length - 1, // Exclude header row
             columns: rows[0].length
           });
-          setMappings(rows[0].map((header) => {
-            const existingMapping = mappings.find(m => m.csvColumn === header);
-            return {
-              csvColumn: header,
-              dbColumn: existingMapping?.dbColumn || ""
-            };
-          }));
+          
+          // Ensure we have valid csv headers and mappings
+          if (rows[0] && rows[0].length > 0) {
+            // Make sure mappings is always an array before trying to find on it
+            const currentMappings = Array.isArray(mappings) ? mappings : [];
+            
+            setMappings(rows[0].map((header) => {
+              const existingMapping = currentMappings.find(m => m && m.csvColumn === header);
+              return {
+                csvColumn: header,
+                dbColumn: existingMapping?.dbColumn || ""
+              };
+            }));
+          }
         }
       }
       reader.readAsText(file)

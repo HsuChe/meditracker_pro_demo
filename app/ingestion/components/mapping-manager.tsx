@@ -39,6 +39,11 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
   const [selectedMapping, setSelectedMapping] = useState<string>("");
   const [availableDbColumns, setAvailableDbColumns] = useState<string[]>(initialDbColumns || []);
 
+  // Ensure we have valid mappings
+  const validMappings = Array.isArray(currentMappings) 
+    ? currentMappings.filter(m => m && typeof m === 'object')
+    : [];
+
   // Fetch saved mappings when component mounts
   useEffect(() => {
     const fetchSavedMappings = async () => {
@@ -128,7 +133,7 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
 
   // Handle database column selection
   const handleDbColumnChange = useCallback((csvColumn: string, value: string) => {
-    const newMappings = currentMappings.map(mapping => {
+    const newMappings = validMappings.map(mapping => {
       if (mapping.csvColumn === csvColumn) {
         return { ...mapping, dbColumn: value };
       }
@@ -136,13 +141,13 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
     });
     
     // Ensure we're passing valid mappings
-    const validMappings = newMappings.map(mapping => ({
+    const updatedMappings = newMappings.map(mapping => ({
       csvColumn: mapping.csvColumn,
       dbColumn: mapping.dbColumn || ''
     }));
     
-    onMappingChange(validMappings);
-  }, [currentMappings, onMappingChange]);
+    onMappingChange(updatedMappings);
+  }, [validMappings, onMappingChange]);
 
   // Delete mapping
   const handleDeleteMapping = useCallback(async (mappingId: number) => {
@@ -169,7 +174,7 @@ export function MappingManager({ csvColumns, dbColumns: initialDbColumns, curren
   }, [savedMappings, selectedMapping]);
 
   // Sort the currentMappings array alphabetically by csvColumn
-  const sortedMappings = [...currentMappings].sort((a, b) => 
+  const sortedMappings = [...validMappings].sort((a, b) => 
     a.csvColumn.localeCompare(b.csvColumn)
   );
 

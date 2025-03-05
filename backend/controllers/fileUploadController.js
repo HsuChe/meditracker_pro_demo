@@ -10,6 +10,9 @@ const monitoring = require('../middleware/monitoring');
 const ingestedDataController = require('./ingestedDataController');
 const { createIngestedData } = ingestedDataController;
 
+// Get allowed origin from environment variable with fallback to wildcard
+const getAllowedOrigin = () => process.env.FRONTEND_ORIGIN || '*';
+
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -183,7 +186,7 @@ const handleProgressStream = (req, res) => {
   
   try {
     // Always add CORS headers for SSE
-    res.setHeader('Access-Control-Allow-Origin', 'https://www.accuratiohealth.com');
+    res.setHeader('Access-Control-Allow-Origin', getAllowedOrigin());
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -201,7 +204,7 @@ const handleProgressStream = (req, res) => {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': 'https://www.accuratiohealth.com'
+      'Access-Control-Allow-Origin': getAllowedOrigin()
     });
     
     // Send an initial message
@@ -324,7 +327,7 @@ const handleProgressStream = (req, res) => {
     // Try to send a regular error response
     try {
       // Add CORS headers even for error responses
-      res.setHeader('Access-Control-Allow-Origin', 'https://www.accuratiohealth.com');
+      res.setHeader('Access-Control-Allow-Origin', getAllowedOrigin());
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       
       res.status(500).json({

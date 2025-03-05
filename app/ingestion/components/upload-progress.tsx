@@ -91,51 +91,80 @@ export function UploadProgress({
       // Handle regular messages
       eventSourceRef.current.onmessage = (event: MessageEvent) => {
         try {
+          // Check if event.data is undefined or empty
+          if (!event.data) {
+            console.warn('Received empty SSE data');
+            return;
+          }
+          
           const data = JSON.parse(event.data);
           
           // Handle progress updates
           if (data.type === 'progress') {
-            setCurrentRow(data.current);
+            setCurrentRow(data.current || 0);
             // Estimate uploaded bytes based on progress percentage
-            const estimatedBytes = Math.floor((data.current / totalRows) * totalBytes);
+            const estimatedBytes = Math.floor(((data.current || 0) / totalRows) * totalBytes);
             setUploadedBytes(estimatedBytes);
+            
+            // Check for error status
+            if (data.status === 'error') {
+              setError(data.message || 'An error occurred during processing');
+              if (onSSEError) {
+                onSSEError(data.message || 'An error occurred during processing');
+              }
+            }
           }
         } catch (err) {
           console.error('Error parsing SSE data:', err);
+          setError('Failed to parse server response');
         }
       };
       
       // Handle complete event
       eventSourceRef.current.addEventListener('complete', (event: MessageEvent) => {
-        const data = JSON.parse(event.data);
-        
-        // Update to completed state
-        setCurrentRow(totalRows);
-        setUploadedBytes(totalBytes);
-        
-        // Call the onComplete callback if provided
-        if (onSSEComplete) {
-          onSSEComplete(data);
-        }
-        
-        // Close the connection
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-          eventSourceRef.current = null;
+        try {
+          // Check if event.data is undefined or empty
+          if (!event.data) {
+            console.warn('Received empty complete event data');
+            return;
+          }
+          
+          const data = JSON.parse(event.data);
+          
+          // Update to completed state
+          setCurrentRow(totalRows);
+          setUploadedBytes(totalBytes);
+          
+          // Call the onComplete callback if provided
+          if (onSSEComplete) {
+            onSSEComplete(data);
+          }
+          
+          // Close the connection
+          if (eventSourceRef.current) {
+            eventSourceRef.current.close();
+            eventSourceRef.current = null;
+          }
+        } catch (err) {
+          console.error('Error parsing SSE complete event:', err);
+          setError('Failed to parse completion data');
         }
       });
       
       // Handle error event
       eventSourceRef.current.addEventListener('error', (event: MessageEvent) => {
-        let errorData = { error: 'Unknown error occurred' };
+        let errorMessage = 'Unknown error occurred';
         
         try {
-          errorData = JSON.parse(event.data);
+          // Check if event.data exists before trying to parse
+          if (event.data) {
+            const errorData = JSON.parse(event.data);
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          }
         } catch (err) {
           console.error('Error parsing error data:', err);
         }
         
-        const errorMessage = errorData.error || 'Error during ingestion process';
         setError(errorMessage);
         
         // Call the onError callback if provided
